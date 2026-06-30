@@ -1,0 +1,32 @@
+{
+  "runtime": "python_rag",
+  "attempts": [
+    {
+      "step": 1,
+      "query": "What launch risk was discussed?",
+      "hit_count": 1,
+      "source_types": [
+        "meeting_transcript"
+      ],
+      "selected_chunk_ids": [
+        "mt-1"
+      ],
+      "confidence": 0.8
+    }
+  ],
+  "evidence_pack": {
+    "selected_chunk_ids": [
+      "mt-1"
+    ],
+    "confidence": 0.8,
+    "source_types": [
+      "meeting_transcript"
+    ]
+  },
+  "context_sufficiency": {
+    "sufficient": true,
+    "confidence": 0.8,
+    "reason": "Relevant meeting transcript evidence was found."
+  }
+}
+

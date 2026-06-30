@@ -18,7 +18,7 @@ cd agent-runtime
 python -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8090
+uvicorn allcallall_agent_runtime.main:app --reload --port 8090
 ```
 
 Use it from the Go backend with:
@@ -46,7 +46,7 @@ If the tool bridge is not configured, the runtime still uses context preloaded b
 
 ```bash
 cd agent-runtime
-python -m app.eval_runner --out evals/reports
+python -m allcallall_agent_runtime.eval_runner --out evals/reports
 ```
 
 Outputs:

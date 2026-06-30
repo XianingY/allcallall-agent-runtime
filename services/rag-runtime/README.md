@@ -11,7 +11,7 @@ cd rag-runtime
 python -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8091
+uvicorn allcallall_rag_runtime.main:app --reload --port 8091
 ```
 
 ## API
@@ -25,7 +25,7 @@ uvicorn app.main:app --reload --port 8091
 ## Eval
 
 ```bash
-python -m app.eval_runner --out evals/reports
+python -m allcallall_rag_runtime.eval_runner --out evals/reports
 ```
 
 The eval is deterministic fixture evidence for retrieval refinement, rerank ordering, grounding, and insufficient-context behavior. It is not an open-domain RAG quality claim.

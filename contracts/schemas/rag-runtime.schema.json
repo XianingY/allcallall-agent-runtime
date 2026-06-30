@@ -1,0 +1,1481 @@
+{
+  "RetrievalQueryRequest": {
+    "$defs": {
+      "ContextChunk": {
+        "additionalProperties": true,
+        "description": "A chunk of context from a knowledge source, conversation, or meeting transcript.",
+        "properties": {
+          "chunk_id": {
+            "default": "",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "default": "",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "default": "",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "bm25_rank": {
+            "default": 0,
+            "title": "Bm25 Rank",
+            "type": "integer"
+          },
+          "vector_rank": {
+            "default": 0,
+            "title": "Vector Rank",
+            "type": "integer"
+          },
+          "rrf_score": {
+            "default": 0,
+            "title": "Rrf Score",
+            "type": "number"
+          },
+          "bm25_score": {
+            "default": 0,
+            "title": "Bm25 Score",
+            "type": "number"
+          },
+          "vector_score": {
+            "default": 0,
+            "title": "Vector Score",
+            "type": "number"
+          },
+          "rerank_score": {
+            "default": 0,
+            "title": "Rerank Score",
+            "type": "number"
+          },
+          "rerank_reason": {
+            "default": "",
+            "title": "Rerank Reason",
+            "type": "string"
+          },
+          "final_rank": {
+            "default": 0,
+            "title": "Final Rank",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording Session Id"
+          },
+          "recording_file_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording File Id"
+          },
+          "transcript_segment_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcript Segment Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Ms"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "snippet"
+        ],
+        "title": "ContextChunk",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "organization_id": {
+        "default": 0,
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "user_id": {
+        "default": 0,
+        "title": "User Id",
+        "type": "integer"
+      },
+      "conversation_id": {
+        "default": 0,
+        "title": "Conversation Id",
+        "type": "integer"
+      },
+      "query": {
+        "title": "Query",
+        "type": "string"
+      },
+      "source_types": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Source Types",
+        "type": "array"
+      },
+      "top_k": {
+        "default": 8,
+        "title": "Top K",
+        "type": "integer"
+      },
+      "chunks": {
+        "items": {
+          "$ref": "#/$defs/ContextChunk"
+        },
+        "title": "Chunks",
+        "type": "array"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "title": "RetrievalQueryRequest",
+    "type": "object"
+  },
+  "RetrievalQueryResponse": {
+    "$defs": {
+      "ContextChunk": {
+        "additionalProperties": true,
+        "description": "A chunk of context from a knowledge source, conversation, or meeting transcript.",
+        "properties": {
+          "chunk_id": {
+            "default": "",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "default": "",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "default": "",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "bm25_rank": {
+            "default": 0,
+            "title": "Bm25 Rank",
+            "type": "integer"
+          },
+          "vector_rank": {
+            "default": 0,
+            "title": "Vector Rank",
+            "type": "integer"
+          },
+          "rrf_score": {
+            "default": 0,
+            "title": "Rrf Score",
+            "type": "number"
+          },
+          "bm25_score": {
+            "default": 0,
+            "title": "Bm25 Score",
+            "type": "number"
+          },
+          "vector_score": {
+            "default": 0,
+            "title": "Vector Score",
+            "type": "number"
+          },
+          "rerank_score": {
+            "default": 0,
+            "title": "Rerank Score",
+            "type": "number"
+          },
+          "rerank_reason": {
+            "default": "",
+            "title": "Rerank Reason",
+            "type": "string"
+          },
+          "final_rank": {
+            "default": 0,
+            "title": "Final Rank",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording Session Id"
+          },
+          "recording_file_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording File Id"
+          },
+          "transcript_segment_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcript Segment Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Ms"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "snippet"
+        ],
+        "title": "ContextChunk",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "runtime": {
+        "default": "python_rag",
+        "title": "Runtime",
+        "type": "string"
+      },
+      "query": {
+        "title": "Query",
+        "type": "string"
+      },
+      "chunks": {
+        "items": {
+          "$ref": "#/$defs/ContextChunk"
+        },
+        "title": "Chunks",
+        "type": "array"
+      },
+      "count": {
+        "default": 0,
+        "title": "Count",
+        "type": "integer"
+      },
+      "source": {
+        "default": "inline",
+        "title": "Source",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "title": "RetrievalQueryResponse",
+    "type": "object"
+  },
+  "RerankRequest": {
+    "$defs": {
+      "ContextChunk": {
+        "additionalProperties": true,
+        "description": "A chunk of context from a knowledge source, conversation, or meeting transcript.",
+        "properties": {
+          "chunk_id": {
+            "default": "",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "default": "",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "default": "",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "bm25_rank": {
+            "default": 0,
+            "title": "Bm25 Rank",
+            "type": "integer"
+          },
+          "vector_rank": {
+            "default": 0,
+            "title": "Vector Rank",
+            "type": "integer"
+          },
+          "rrf_score": {
+            "default": 0,
+            "title": "Rrf Score",
+            "type": "number"
+          },
+          "bm25_score": {
+            "default": 0,
+            "title": "Bm25 Score",
+            "type": "number"
+          },
+          "vector_score": {
+            "default": 0,
+            "title": "Vector Score",
+            "type": "number"
+          },
+          "rerank_score": {
+            "default": 0,
+            "title": "Rerank Score",
+            "type": "number"
+          },
+          "rerank_reason": {
+            "default": "",
+            "title": "Rerank Reason",
+            "type": "string"
+          },
+          "final_rank": {
+            "default": 0,
+            "title": "Final Rank",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording Session Id"
+          },
+          "recording_file_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording File Id"
+          },
+          "transcript_segment_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcript Segment Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Ms"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "snippet"
+        ],
+        "title": "ContextChunk",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "query": {
+        "title": "Query",
+        "type": "string"
+      },
+      "chunks": {
+        "items": {
+          "$ref": "#/$defs/ContextChunk"
+        },
+        "title": "Chunks",
+        "type": "array"
+      },
+      "top_k": {
+        "default": 8,
+        "title": "Top K",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "title": "RerankRequest",
+    "type": "object"
+  },
+  "RerankResponse": {
+    "$defs": {
+      "ContextChunk": {
+        "additionalProperties": true,
+        "description": "A chunk of context from a knowledge source, conversation, or meeting transcript.",
+        "properties": {
+          "chunk_id": {
+            "default": "",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "default": "",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "default": "",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "bm25_rank": {
+            "default": 0,
+            "title": "Bm25 Rank",
+            "type": "integer"
+          },
+          "vector_rank": {
+            "default": 0,
+            "title": "Vector Rank",
+            "type": "integer"
+          },
+          "rrf_score": {
+            "default": 0,
+            "title": "Rrf Score",
+            "type": "number"
+          },
+          "bm25_score": {
+            "default": 0,
+            "title": "Bm25 Score",
+            "type": "number"
+          },
+          "vector_score": {
+            "default": 0,
+            "title": "Vector Score",
+            "type": "number"
+          },
+          "rerank_score": {
+            "default": 0,
+            "title": "Rerank Score",
+            "type": "number"
+          },
+          "rerank_reason": {
+            "default": "",
+            "title": "Rerank Reason",
+            "type": "string"
+          },
+          "final_rank": {
+            "default": 0,
+            "title": "Final Rank",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording Session Id"
+          },
+          "recording_file_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording File Id"
+          },
+          "transcript_segment_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcript Segment Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Ms"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "snippet"
+        ],
+        "title": "ContextChunk",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "runtime": {
+        "default": "python_rag",
+        "title": "Runtime",
+        "type": "string"
+      },
+      "provider": {
+        "default": "rules",
+        "title": "Provider",
+        "type": "string"
+      },
+      "chunks": {
+        "items": {
+          "$ref": "#/$defs/ContextChunk"
+        },
+        "title": "Chunks",
+        "type": "array"
+      },
+      "trace": {
+        "additionalProperties": true,
+        "title": "Trace",
+        "type": "object"
+      }
+    },
+    "title": "RerankResponse",
+    "type": "object"
+  },
+  "AgenticRetrievalRequest": {
+    "$defs": {
+      "ContextChunk": {
+        "additionalProperties": true,
+        "description": "A chunk of context from a knowledge source, conversation, or meeting transcript.",
+        "properties": {
+          "chunk_id": {
+            "default": "",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "default": "",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "default": "",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "bm25_rank": {
+            "default": 0,
+            "title": "Bm25 Rank",
+            "type": "integer"
+          },
+          "vector_rank": {
+            "default": 0,
+            "title": "Vector Rank",
+            "type": "integer"
+          },
+          "rrf_score": {
+            "default": 0,
+            "title": "Rrf Score",
+            "type": "number"
+          },
+          "bm25_score": {
+            "default": 0,
+            "title": "Bm25 Score",
+            "type": "number"
+          },
+          "vector_score": {
+            "default": 0,
+            "title": "Vector Score",
+            "type": "number"
+          },
+          "rerank_score": {
+            "default": 0,
+            "title": "Rerank Score",
+            "type": "number"
+          },
+          "rerank_reason": {
+            "default": "",
+            "title": "Rerank Reason",
+            "type": "string"
+          },
+          "final_rank": {
+            "default": 0,
+            "title": "Final Rank",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording Session Id"
+          },
+          "recording_file_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording File Id"
+          },
+          "transcript_segment_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcript Segment Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Ms"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "snippet"
+        ],
+        "title": "ContextChunk",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "organization_id": {
+        "default": 0,
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "user_id": {
+        "default": 0,
+        "title": "User Id",
+        "type": "integer"
+      },
+      "conversation_id": {
+        "default": 0,
+        "title": "Conversation Id",
+        "type": "integer"
+      },
+      "query": {
+        "title": "Query",
+        "type": "string"
+      },
+      "source_types": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Source Types",
+        "type": "array"
+      },
+      "top_k": {
+        "default": 8,
+        "title": "Top K",
+        "type": "integer"
+      },
+      "chunks": {
+        "items": {
+          "$ref": "#/$defs/ContextChunk"
+        },
+        "title": "Chunks",
+        "type": "array"
+      },
+      "max_steps": {
+        "default": 3,
+        "title": "Max Steps",
+        "type": "integer"
+      },
+      "min_confidence": {
+        "default": 0.6,
+        "title": "Min Confidence",
+        "type": "number"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "title": "AgenticRetrievalRequest",
+    "type": "object"
+  },
+  "AgenticRetrievalResponse": {
+    "$defs": {
+      "ContextChunk": {
+        "additionalProperties": true,
+        "description": "A chunk of context from a knowledge source, conversation, or meeting transcript.",
+        "properties": {
+          "chunk_id": {
+            "default": "",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "default": "",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "default": "",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "bm25_rank": {
+            "default": 0,
+            "title": "Bm25 Rank",
+            "type": "integer"
+          },
+          "vector_rank": {
+            "default": 0,
+            "title": "Vector Rank",
+            "type": "integer"
+          },
+          "rrf_score": {
+            "default": 0,
+            "title": "Rrf Score",
+            "type": "number"
+          },
+          "bm25_score": {
+            "default": 0,
+            "title": "Bm25 Score",
+            "type": "number"
+          },
+          "vector_score": {
+            "default": 0,
+            "title": "Vector Score",
+            "type": "number"
+          },
+          "rerank_score": {
+            "default": 0,
+            "title": "Rerank Score",
+            "type": "number"
+          },
+          "rerank_reason": {
+            "default": "",
+            "title": "Rerank Reason",
+            "type": "string"
+          },
+          "final_rank": {
+            "default": 0,
+            "title": "Final Rank",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording Session Id"
+          },
+          "recording_file_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording File Id"
+          },
+          "transcript_segment_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcript Segment Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Ms"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "snippet"
+        ],
+        "title": "ContextChunk",
+        "type": "object"
+      },
+      "ContextSufficiency": {
+        "description": "Result of a context sufficiency check.",
+        "properties": {
+          "sufficient": {
+            "default": false,
+            "title": "Sufficient",
+            "type": "boolean"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "missing_info": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Info",
+            "type": "array"
+          }
+        },
+        "title": "ContextSufficiency",
+        "type": "object"
+      },
+      "EvidencePack": {
+        "description": "A pack of evidence collected from retrieval attempts.",
+        "properties": {
+          "selected_chunk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Selected Chunk Ids",
+            "type": "array"
+          },
+          "rejected_count": {
+            "default": 0,
+            "title": "Rejected Count",
+            "type": "integer"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "source_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Types",
+            "type": "array"
+          },
+          "snippets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Snippets",
+            "type": "array"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/$defs/ContextChunk"
+            },
+            "title": "Citations",
+            "type": "array"
+          }
+        },
+        "title": "EvidencePack",
+        "type": "object"
+      },
+      "RetrievalAttempt": {
+        "description": "A single retrieval attempt in an agentic retrieval workflow.",
+        "properties": {
+          "step": {
+            "title": "Step",
+            "type": "integer"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "tool_name": {
+            "default": "",
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "source_scope": {
+            "default": "all",
+            "title": "Source Scope",
+            "type": "string"
+          },
+          "hit_count": {
+            "default": 0,
+            "title": "Hit Count",
+            "type": "integer"
+          },
+          "source_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Types",
+            "type": "array"
+          },
+          "selected_chunk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Selected Chunk Ids",
+            "type": "array"
+          },
+          "observation": {
+            "default": "",
+            "title": "Observation",
+            "type": "string"
+          },
+          "refined": {
+            "default": false,
+            "title": "Refined",
+            "type": "boolean"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "step",
+          "query"
+        ],
+        "title": "RetrievalAttempt",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "runtime": {
+        "default": "python_rag",
+        "title": "Runtime",
+        "type": "string"
+      },
+      "attempts": {
+        "items": {
+          "$ref": "#/$defs/RetrievalAttempt"
+        },
+        "title": "Attempts",
+        "type": "array"
+      },
+      "evidence_pack": {
+        "$ref": "#/$defs/EvidencePack"
+      },
+      "context_sufficiency": {
+        "$ref": "#/$defs/ContextSufficiency"
+      },
+      "trace": {
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Trace",
+        "type": "array"
+      }
+    },
+    "title": "AgenticRetrievalResponse",
+    "type": "object"
+  },
+  "GroundingCheckRequest": {
+    "$defs": {
+      "ContextChunk": {
+        "additionalProperties": true,
+        "description": "A chunk of context from a knowledge source, conversation, or meeting transcript.",
+        "properties": {
+          "chunk_id": {
+            "default": "",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "default": "",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "default": "",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "bm25_rank": {
+            "default": 0,
+            "title": "Bm25 Rank",
+            "type": "integer"
+          },
+          "vector_rank": {
+            "default": 0,
+            "title": "Vector Rank",
+            "type": "integer"
+          },
+          "rrf_score": {
+            "default": 0,
+            "title": "Rrf Score",
+            "type": "number"
+          },
+          "bm25_score": {
+            "default": 0,
+            "title": "Bm25 Score",
+            "type": "number"
+          },
+          "vector_score": {
+            "default": 0,
+            "title": "Vector Score",
+            "type": "number"
+          },
+          "rerank_score": {
+            "default": 0,
+            "title": "Rerank Score",
+            "type": "number"
+          },
+          "rerank_reason": {
+            "default": "",
+            "title": "Rerank Reason",
+            "type": "string"
+          },
+          "final_rank": {
+            "default": 0,
+            "title": "Final Rank",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording Session Id"
+          },
+          "recording_file_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording File Id"
+          },
+          "transcript_segment_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcript Segment Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Ms"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "snippet"
+        ],
+        "title": "ContextChunk",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "answer": {
+        "title": "Answer",
+        "type": "string"
+      },
+      "citations": {
+        "items": {
+          "$ref": "#/$defs/ContextChunk"
+        },
+        "title": "Citations",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "GroundingCheckRequest",
+    "type": "object"
+  },
+  "GroundingCheckResponse": {
+    "properties": {
+      "grounded": {
+        "title": "Grounded",
+        "type": "boolean"
+      },
+      "unsupported_claims": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Unsupported Claims",
+        "type": "array"
+      },
+      "coverage": {
+        "default": 0,
+        "title": "Coverage",
+        "type": "number"
+      },
+      "trace": {
+        "additionalProperties": true,
+        "title": "Trace",
+        "type": "object"
+      }
+    },
+    "required": [
+      "grounded"
+    ],
+    "title": "GroundingCheckResponse",
+    "type": "object"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "status": "requires_action",
+  "runtime": "python_langgraph",
+  "provider": "rules",
+  "summary": "Meeting Brief: security approval is pending and budget timing is at risk.",
+  "action_items": [
+    "Follow up on security approval."
+  ],
+  "risk_flags": [
+    "Security approval is still pending."
+  ],
+  "citations": [
+    {
+      "chunk_id": "mt-11",
+      "source_type": "meeting_transcript",
+      "source_id": "11",
+      "snippet": "The team confirmed security approval is still pending and budget timing is at risk.",
+      "transcript_segment_id": 11,
+      "start_ms": 1000,
+      "end_ms": 9000
+    }
+  ],
+  "proposed_tool_calls": [
+    {
+      "tool_name": "write_conversation_message",
+      "arguments": {
+        "conversation_id": 42,
+        "body": "Meeting brief ready."
+      },
+      "reason": "Write the approved meeting brief back to the conversation.",
+      "idempotency_key": "fixture-meeting-brief-write",
+      "approval_required": true
+    }
+  ]
+}
+

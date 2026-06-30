@@ -1,0 +1,40 @@
+#!/usr/bin/env sh
+set -eu
+
+curl -sS http://127.0.0.1:8090/v1/workflows/meeting_brief/run \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "organization_id": 1,
+    "user_id": 7,
+    "conversation_id": 42,
+    "workflow_run_id": 1001,
+    "preset": "meeting_brief",
+    "goal": "Generate a grounded meeting brief with risks and action items.",
+    "meeting_transcripts": [
+      {
+        "id": 11,
+        "recording_session_id": 21,
+        "recording_file_id": 31,
+        "start_ms": 1000,
+        "end_ms": 9000,
+        "text": "The team confirmed security approval is still pending and budget timing is at risk.",
+        "speaker": "mixed-audio"
+      }
+    ],
+    "context_chunks": [
+      {
+        "chunk_id": "mt-11",
+        "source_type": "meeting_transcript",
+        "source_id": "11",
+        "source_title": "Beta Review Meeting",
+        "snippet": "The team confirmed security approval is still pending and budget timing is at risk.",
+        "score": 10,
+        "recording_session_id": 21,
+        "recording_file_id": 31,
+        "transcript_segment_id": 11,
+        "start_ms": 1000,
+        "end_ms": 9000
+      }
+    ]
+  }' | python -m json.tool
+

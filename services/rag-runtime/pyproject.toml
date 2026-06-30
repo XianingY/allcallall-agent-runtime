@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-allcallall-rag-eval = "app.eval_runner:main"
+allcallall-rag-eval = "allcallall_rag_runtime.eval_runner:main"
 
 [project.optional-dependencies]
 llamaindex = [
@@ -27,7 +27,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["allcallall_rag_runtime*"]
 exclude = ["evals*", "tests*"]
 
 [tool.pytest.ini_options]
@@ -41,3 +41,4 @@ target-version = "py311"
 python_version = "3.11"
 strict = true
 plugins = ["pydantic.mypy"]
+mypy_path = "../../packages/shared"

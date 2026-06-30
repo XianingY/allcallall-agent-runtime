@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from app.eval_runner import run_eval
-from app.main import run_meeting_brief, run_react_agent, run_workflow
-from app.grounding import check_grounding
-from app.llamaindex_adapter import run_fixture_retrieval
-from app.models import Citation, ContextChunk, MeetingBriefRequest, MeetingTranscriptSegment, WorkflowRequest
-from app.prompts import prompt_version_for, structured_prompt_for
-from app.providers import ProviderError, create_provider
-from app.retrieval import rerank_context_chunks
+from allcallall_agent_runtime.eval_runner import run_eval
+from allcallall_agent_runtime.main import run_meeting_brief, run_react_agent, run_workflow
+from allcallall_agent_runtime.grounding import check_grounding
+from allcallall_agent_runtime.llamaindex_adapter import run_fixture_retrieval
+from allcallall_agent_runtime.models import Citation, ContextChunk, MeetingBriefRequest, MeetingTranscriptSegment, WorkflowRequest
+from allcallall_agent_runtime.prompts import prompt_version_for, structured_prompt_for
+from allcallall_agent_runtime.providers import ProviderError, create_provider
+from allcallall_agent_runtime.retrieval import rerank_context_chunks
 
 
 def test_meeting_brief_returns_trace_citations_and_write_proposals() -> None:
@@ -203,9 +203,9 @@ def test_context_qa_guard_when_context_is_missing() -> None:
 
 
 def test_python_eval_fixture_passes(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.config import AgentRuntimeConfig
+    from allcallall_agent_runtime.config import AgentRuntimeConfig
 
-    monkeypatch.setattr("app.config.config", AgentRuntimeConfig(provider="rules"))
+    monkeypatch.setattr("allcallall_agent_runtime.config.config", AgentRuntimeConfig(provider="rules"))
     report = run_eval()
 
     assert report.summary.total_cases >= 8
@@ -214,10 +214,10 @@ def test_python_eval_fixture_passes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_openai_provider_requires_base_url_and_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.config import AgentRuntimeConfig
+    from allcallall_agent_runtime.config import AgentRuntimeConfig
 
     monkeypatch.setattr(
-        "app.config.config",
+        "allcallall_agent_runtime.config.config",
         AgentRuntimeConfig(provider="openai_compatible", openai_base_url="", openai_model=""),
     )
 

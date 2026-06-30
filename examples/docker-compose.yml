@@ -1,0 +1,26 @@
+services:
+  agent-runtime:
+    build:
+      context: ..
+      dockerfile: services/agent-runtime/Dockerfile
+    environment:
+      PY_AGENT_PROVIDER: ${PY_AGENT_PROVIDER:-rules}
+      PY_AGENT_TOOL_BRIDGE_BASE_URL: ${PY_AGENT_TOOL_BRIDGE_BASE_URL:-}
+      PY_AGENT_TOOL_BRIDGE_TOKEN: ${PY_AGENT_TOOL_BRIDGE_TOKEN:-}
+      PY_RAG_RUNTIME_BASE_URL: http://rag-runtime:8091
+      PY_AGENT_RUNTIME_PORT: "8090"
+    ports:
+      - "8090:8090"
+
+  rag-runtime:
+    build:
+      context: ..
+      dockerfile: services/rag-runtime/Dockerfile
+    environment:
+      PY_RAG_RERANK_PROVIDER: ${PY_RAG_RERANK_PROVIDER:-rules}
+      PY_RAG_TOOL_BRIDGE_BASE_URL: ${PY_RAG_TOOL_BRIDGE_BASE_URL:-}
+      PY_RAG_TOOL_BRIDGE_TOKEN: ${PY_RAG_TOOL_BRIDGE_TOKEN:-}
+      PY_RAG_RUNTIME_PORT: "8091"
+    ports:
+      - "8091:8091"
+

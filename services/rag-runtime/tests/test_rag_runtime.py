@@ -4,10 +4,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.eval_runner import load_cases, run_eval
-from app.main import app
-from app.models import AgenticRetrievalRequest, ContextChunk
-from app.retrieval import agentic_retrieve, grounding_check, rerank
+from allcallall_rag_runtime.eval_runner import load_cases, run_eval
+from allcallall_rag_runtime.main import app
+from allcallall_rag_runtime.models import AgenticRetrievalRequest, ContextChunk
+from allcallall_rag_runtime.retrieval import agentic_retrieve, grounding_check, rerank
 
 
 def test_rules_rerank_prioritizes_relevant_source() -> None:

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: make install-dev
+      - name: Test
+        run: make test
+      - name: Lint
+        run: make lint
+      - name: Typecheck
+        run: make typecheck
+      - name: Contracts
+        run: make contracts-check
+      - name: Eval
+        run: make agent-eval rag-eval
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build Agent Runtime
+        run: docker build -f services/agent-runtime/Dockerfile -t allcallall-agent-runtime:ci .
+      - name: Build RAG Runtime
+        run: docker build -f services/rag-runtime/Dockerfile -t allcallall-rag-runtime:ci .
+

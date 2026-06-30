@@ -1,0 +1,1402 @@
+{
+  "MeetingBriefRequest": {
+    "$defs": {
+      "AgenticRAGConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "max_steps": {
+            "default": 3,
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "allowed_source_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Source Types",
+            "type": "array"
+          },
+          "min_confidence": {
+            "default": 0.6,
+            "title": "Min Confidence",
+            "type": "number"
+          }
+        },
+        "title": "AgenticRAGConfig",
+        "type": "object"
+      },
+      "ContextChunk": {
+        "properties": {
+          "chunk_id": {
+            "default": "",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "default": "",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "default": "",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "bm25_rank": {
+            "default": 0,
+            "title": "Bm25 Rank",
+            "type": "integer"
+          },
+          "vector_rank": {
+            "default": 0,
+            "title": "Vector Rank",
+            "type": "integer"
+          },
+          "rrf_score": {
+            "default": 0,
+            "title": "Rrf Score",
+            "type": "number"
+          },
+          "bm25_score": {
+            "default": 0,
+            "title": "Bm25 Score",
+            "type": "number"
+          },
+          "vector_score": {
+            "default": 0,
+            "title": "Vector Score",
+            "type": "number"
+          },
+          "rerank_score": {
+            "default": 0,
+            "title": "Rerank Score",
+            "type": "number"
+          },
+          "rerank_reason": {
+            "default": "",
+            "title": "Rerank Reason",
+            "type": "string"
+          },
+          "final_rank": {
+            "default": 0,
+            "title": "Final Rank",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording Session Id"
+          },
+          "recording_file_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording File Id"
+          },
+          "transcript_segment_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcript Segment Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Ms"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "snippet"
+        ],
+        "title": "ContextChunk",
+        "type": "object"
+      },
+      "ConversationMessage": {
+        "properties": {
+          "id": {
+            "default": 0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "sender_id": {
+            "default": 0,
+            "title": "Sender Id",
+            "type": "integer"
+          },
+          "body": {
+            "default": "",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Created At"
+          }
+        },
+        "title": "ConversationMessage",
+        "type": "object"
+      },
+      "ConversationNote": {
+        "properties": {
+          "id": {
+            "default": 0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "author_id": {
+            "default": 0,
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "body": {
+            "default": "",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Created At"
+          }
+        },
+        "title": "ConversationNote",
+        "type": "object"
+      },
+      "MeetingTranscriptSegment": {
+        "properties": {
+          "id": {
+            "default": 0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "default": 0,
+            "title": "Recording Session Id",
+            "type": "integer"
+          },
+          "recording_file_id": {
+            "default": 0,
+            "title": "Recording File Id",
+            "type": "integer"
+          },
+          "start_ms": {
+            "default": 0,
+            "title": "Start Ms",
+            "type": "integer"
+          },
+          "end_ms": {
+            "default": 0,
+            "title": "End Ms",
+            "type": "integer"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          },
+          "speaker": {
+            "default": "",
+            "title": "Speaker",
+            "type": "string"
+          }
+        },
+        "title": "MeetingTranscriptSegment",
+        "type": "object"
+      },
+      "ToolPolicy": {
+        "properties": {
+          "read_tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Read Tools",
+            "type": "array"
+          },
+          "write_tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Write Tools",
+            "type": "array"
+          }
+        },
+        "title": "ToolPolicy",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "request_id": {
+        "default": "",
+        "title": "Request Id",
+        "type": "string"
+      },
+      "organization_id": {
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "user_id": {
+        "title": "User Id",
+        "type": "integer"
+      },
+      "conversation_id": {
+        "title": "Conversation Id",
+        "type": "integer"
+      },
+      "agent_run_id": {
+        "default": 0,
+        "title": "Agent Run Id",
+        "type": "integer"
+      },
+      "workflow_run_id": {
+        "title": "Workflow Run Id",
+        "type": "integer"
+      },
+      "preset": {
+        "default": "meeting_brief",
+        "title": "Preset",
+        "type": "string"
+      },
+      "goal": {
+        "title": "Goal",
+        "type": "string"
+      },
+      "messages": {
+        "items": {
+          "$ref": "#/$defs/ConversationMessage"
+        },
+        "title": "Messages",
+        "type": "array"
+      },
+      "notes": {
+        "items": {
+          "$ref": "#/$defs/ConversationNote"
+        },
+        "title": "Notes",
+        "type": "array"
+      },
+      "meeting_transcripts": {
+        "items": {
+          "$ref": "#/$defs/MeetingTranscriptSegment"
+        },
+        "title": "Meeting Transcripts",
+        "type": "array"
+      },
+      "context_chunks": {
+        "items": {
+          "$ref": "#/$defs/ContextChunk"
+        },
+        "title": "Context Chunks",
+        "type": "array"
+      },
+      "tool_policy": {
+        "$ref": "#/$defs/ToolPolicy"
+      },
+      "max_iterations": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "title": "Max Iterations",
+        "type": "object"
+      },
+      "agentic_rag": {
+        "$ref": "#/$defs/AgenticRAGConfig"
+      }
+    },
+    "required": [
+      "organization_id",
+      "user_id",
+      "conversation_id",
+      "workflow_run_id",
+      "goal"
+    ],
+    "title": "MeetingBriefRequest",
+    "type": "object"
+  },
+  "MeetingBriefResponse": {
+    "$defs": {
+      "Citation": {
+        "properties": {
+          "chunk_id": {
+            "default": "",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "default": "",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "default": "",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "rerank_score": {
+            "default": 0,
+            "title": "Rerank Score",
+            "type": "number"
+          },
+          "rerank_reason": {
+            "default": "",
+            "title": "Rerank Reason",
+            "type": "string"
+          },
+          "final_rank": {
+            "default": 0,
+            "title": "Final Rank",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording Session Id"
+          },
+          "recording_file_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording File Id"
+          },
+          "transcript_segment_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcript Segment Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Ms"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "snippet"
+        ],
+        "title": "Citation",
+        "type": "object"
+      },
+      "ContextSufficiency": {
+        "properties": {
+          "sufficient": {
+            "default": true,
+            "title": "Sufficient",
+            "type": "boolean"
+          },
+          "confidence": {
+            "default": 1,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "missing_info": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Info",
+            "type": "array"
+          }
+        },
+        "title": "ContextSufficiency",
+        "type": "object"
+      },
+      "EvidencePack": {
+        "properties": {
+          "selected_chunk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Selected Chunk Ids",
+            "type": "array"
+          },
+          "rejected_count": {
+            "default": 0,
+            "title": "Rejected Count",
+            "type": "integer"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "source_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Types",
+            "type": "array"
+          },
+          "snippets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Snippets",
+            "type": "array"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/$defs/Citation"
+            },
+            "title": "Citations",
+            "type": "array"
+          }
+        },
+        "title": "EvidencePack",
+        "type": "object"
+      },
+      "RetrievalAttempt": {
+        "properties": {
+          "step": {
+            "title": "Step",
+            "type": "integer"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "source_scope": {
+            "default": "all",
+            "title": "Source Scope",
+            "type": "string"
+          },
+          "hit_count": {
+            "default": 0,
+            "title": "Hit Count",
+            "type": "integer"
+          },
+          "source_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Types",
+            "type": "array"
+          },
+          "selected_chunk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Selected Chunk Ids",
+            "type": "array"
+          },
+          "observation": {
+            "default": "",
+            "title": "Observation",
+            "type": "string"
+          },
+          "refined": {
+            "default": false,
+            "title": "Refined",
+            "type": "boolean"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "step",
+          "query",
+          "tool_name"
+        ],
+        "title": "RetrievalAttempt",
+        "type": "object"
+      },
+      "RetrievalPlan": {
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "max_steps": {
+            "default": 3,
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "min_confidence": {
+            "default": 0.6,
+            "title": "Min Confidence",
+            "type": "number"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/$defs/RetrievalPlanStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "title": "RetrievalPlan",
+        "type": "object"
+      },
+      "RetrievalPlanStep": {
+        "properties": {
+          "step": {
+            "title": "Step",
+            "type": "integer"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "source_scope": {
+            "default": "all",
+            "title": "Source Scope",
+            "type": "string"
+          },
+          "tool_name": {
+            "default": "query_context_chunks",
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "query"
+        ],
+        "title": "RetrievalPlanStep",
+        "type": "object"
+      },
+      "RoleResult": {
+        "properties": {
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          },
+          "action_items": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Action Items",
+            "type": "array"
+          },
+          "next_step": {
+            "default": "",
+            "title": "Next Step",
+            "type": "string"
+          },
+          "risk_flags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Risk Flags",
+            "type": "array"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/$defs/Citation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "snippets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Snippets",
+            "type": "array"
+          },
+          "react_trace": {
+            "items": {
+              "$ref": "#/$defs/TraceEvent"
+            },
+            "title": "React Trace",
+            "type": "array"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "RoleResult",
+        "type": "object"
+      },
+      "ToolProposal": {
+        "properties": {
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "default": "",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "approval_required": {
+            "default": true,
+            "title": "Approval Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tool_name"
+        ],
+        "title": "ToolProposal",
+        "type": "object"
+      },
+      "TraceEvent": {
+        "properties": {
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "node": {
+            "title": "Node",
+            "type": "string"
+          },
+          "role": {
+            "default": "",
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "default": "completed",
+            "title": "Status",
+            "type": "string"
+          },
+          "iteration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Iteration"
+          },
+          "thought": {
+            "default": "",
+            "title": "Thought",
+            "type": "string"
+          },
+          "tool_name": {
+            "default": "",
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "tool_input": {
+            "additionalProperties": true,
+            "title": "Tool Input",
+            "type": "object"
+          },
+          "observation": {
+            "default": "",
+            "title": "Observation",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          }
+        },
+        "required": [
+          "event",
+          "node"
+        ],
+        "title": "TraceEvent",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "default": "requires_action",
+        "enum": [
+          "ready",
+          "requires_action",
+          "failed"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "runtime": {
+        "default": "python_langgraph",
+        "title": "Runtime",
+        "type": "string"
+      },
+      "provider": {
+        "default": "rules",
+        "title": "Provider",
+        "type": "string"
+      },
+      "summary": {
+        "default": "",
+        "title": "Summary",
+        "type": "string"
+      },
+      "action_items": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Action Items",
+        "type": "array"
+      },
+      "next_step": {
+        "default": "",
+        "title": "Next Step",
+        "type": "string"
+      },
+      "risk_flags": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Risk Flags",
+        "type": "array"
+      },
+      "citations": {
+        "items": {
+          "$ref": "#/$defs/Citation"
+        },
+        "title": "Citations",
+        "type": "array"
+      },
+      "role_results": {
+        "items": {
+          "$ref": "#/$defs/RoleResult"
+        },
+        "title": "Role Results",
+        "type": "array"
+      },
+      "trace_events": {
+        "items": {
+          "$ref": "#/$defs/TraceEvent"
+        },
+        "title": "Trace Events",
+        "type": "array"
+      },
+      "proposed_tool_calls": {
+        "items": {
+          "$ref": "#/$defs/ToolProposal"
+        },
+        "title": "Proposed Tool Calls",
+        "type": "array"
+      },
+      "prompt_version": {
+        "default": "",
+        "title": "Prompt Version",
+        "type": "string"
+      },
+      "grounding_check_result": {
+        "additionalProperties": true,
+        "title": "Grounding Check Result",
+        "type": "object"
+      },
+      "retrieval_plan": {
+        "$ref": "#/$defs/RetrievalPlan"
+      },
+      "retrieval_attempts": {
+        "items": {
+          "$ref": "#/$defs/RetrievalAttempt"
+        },
+        "title": "Retrieval Attempts",
+        "type": "array"
+      },
+      "evidence_pack": {
+        "$ref": "#/$defs/EvidencePack"
+      },
+      "context_sufficiency": {
+        "$ref": "#/$defs/ContextSufficiency"
+      },
+      "error": {
+        "default": "",
+        "title": "Error",
+        "type": "string"
+      }
+    },
+    "title": "MeetingBriefResponse",
+    "type": "object"
+  },
+  "TraceEvent": {
+    "properties": {
+      "event": {
+        "title": "Event",
+        "type": "string"
+      },
+      "node": {
+        "title": "Node",
+        "type": "string"
+      },
+      "role": {
+        "default": "",
+        "title": "Role",
+        "type": "string"
+      },
+      "status": {
+        "default": "completed",
+        "title": "Status",
+        "type": "string"
+      },
+      "iteration": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Iteration"
+      },
+      "thought": {
+        "default": "",
+        "title": "Thought",
+        "type": "string"
+      },
+      "tool_name": {
+        "default": "",
+        "title": "Tool Name",
+        "type": "string"
+      },
+      "tool_input": {
+        "additionalProperties": true,
+        "title": "Tool Input",
+        "type": "object"
+      },
+      "observation": {
+        "default": "",
+        "title": "Observation",
+        "type": "string"
+      },
+      "metadata": {
+        "additionalProperties": true,
+        "title": "Metadata",
+        "type": "object"
+      }
+    },
+    "required": [
+      "event",
+      "node"
+    ],
+    "title": "TraceEvent",
+    "type": "object"
+  },
+  "Citation": {
+    "properties": {
+      "chunk_id": {
+        "default": "",
+        "title": "Chunk Id",
+        "type": "string"
+      },
+      "source_type": {
+        "title": "Source Type",
+        "type": "string"
+      },
+      "source_id": {
+        "title": "Source Id",
+        "type": "string"
+      },
+      "source_title": {
+        "default": "",
+        "title": "Source Title",
+        "type": "string"
+      },
+      "title": {
+        "default": "",
+        "title": "Title",
+        "type": "string"
+      },
+      "snippet": {
+        "title": "Snippet",
+        "type": "string"
+      },
+      "score": {
+        "default": 0,
+        "title": "Score",
+        "type": "integer"
+      },
+      "retrieval_mode": {
+        "default": "",
+        "title": "Retrieval Mode",
+        "type": "string"
+      },
+      "rerank_score": {
+        "default": 0,
+        "title": "Rerank Score",
+        "type": "number"
+      },
+      "rerank_reason": {
+        "default": "",
+        "title": "Rerank Reason",
+        "type": "string"
+      },
+      "final_rank": {
+        "default": 0,
+        "title": "Final Rank",
+        "type": "integer"
+      },
+      "recording_session_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Recording Session Id"
+      },
+      "recording_file_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Recording File Id"
+      },
+      "transcript_segment_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Transcript Segment Id"
+      },
+      "start_ms": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Start Ms"
+      },
+      "end_ms": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "End Ms"
+      }
+    },
+    "required": [
+      "source_type",
+      "source_id",
+      "snippet"
+    ],
+    "title": "Citation",
+    "type": "object"
+  },
+  "ToolProposal": {
+    "properties": {
+      "tool_name": {
+        "title": "Tool Name",
+        "type": "string"
+      },
+      "arguments": {
+        "additionalProperties": true,
+        "title": "Arguments",
+        "type": "object"
+      },
+      "reason": {
+        "default": "",
+        "title": "Reason",
+        "type": "string"
+      },
+      "idempotency_key": {
+        "default": "",
+        "title": "Idempotency Key",
+        "type": "string"
+      },
+      "approval_required": {
+        "default": true,
+        "title": "Approval Required",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "tool_name"
+    ],
+    "title": "ToolProposal",
+    "type": "object"
+  },
+  "EvidencePack": {
+    "$defs": {
+      "Citation": {
+        "properties": {
+          "chunk_id": {
+            "default": "",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "default": "",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "retrieval_mode": {
+            "default": "",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "rerank_score": {
+            "default": 0,
+            "title": "Rerank Score",
+            "type": "number"
+          },
+          "rerank_reason": {
+            "default": "",
+            "title": "Rerank Reason",
+            "type": "string"
+          },
+          "final_rank": {
+            "default": 0,
+            "title": "Final Rank",
+            "type": "integer"
+          },
+          "recording_session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording Session Id"
+          },
+          "recording_file_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recording File Id"
+          },
+          "transcript_segment_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transcript Segment Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Ms"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "snippet"
+        ],
+        "title": "Citation",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "selected_chunk_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Selected Chunk Ids",
+        "type": "array"
+      },
+      "rejected_count": {
+        "default": 0,
+        "title": "Rejected Count",
+        "type": "integer"
+      },
+      "confidence": {
+        "default": 0,
+        "title": "Confidence",
+        "type": "number"
+      },
+      "source_types": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Source Types",
+        "type": "array"
+      },
+      "snippets": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Snippets",
+        "type": "array"
+      },
+      "citations": {
+        "items": {
+          "$ref": "#/$defs/Citation"
+        },
+        "title": "Citations",
+        "type": "array"
+      }
+    },
+    "title": "EvidencePack",
+    "type": "object"
+  },
+  "ContextSufficiency": {
+    "properties": {
+      "sufficient": {
+        "default": true,
+        "title": "Sufficient",
+        "type": "boolean"
+      },
+      "confidence": {
+        "default": 1,
+        "title": "Confidence",
+        "type": "number"
+      },
+      "reason": {
+        "default": "",
+        "title": "Reason",
+        "type": "string"
+      },
+      "missing_info": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Missing Info",
+        "type": "array"
+      }
+    },
+    "title": "ContextSufficiency",
+    "type": "object"
+  }
+}
