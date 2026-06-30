@@ -39,6 +39,13 @@ Or use Docker:
 docker compose -f examples/docker-compose.yml up --build
 ```
 
+Tagged releases publish images to GitHub Container Registry:
+
+```text
+ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime:v0.1.0
+ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime:v0.1.0
+```
+
 ## Runtime APIs
 
 Agent Runtime:
@@ -70,4 +77,3 @@ make rag-eval
 ```
 
 The eval suite is deterministic regression evidence for task completion, citation grounding, approval safety, retrieval refinement, rerank, and insufficient-context handling. It is not an open-domain model-quality benchmark.
-
