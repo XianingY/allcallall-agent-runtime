@@ -185,6 +185,13 @@
         "title": "Top K",
         "type": "integer"
       },
+      "query_vector": {
+        "items": {
+          "type": "number"
+        },
+        "title": "Query Vector",
+        "type": "array"
+      },
       "chunks": {
         "items": {
           "$ref": "#/$defs/ContextChunk"
@@ -930,6 +937,13 @@
         "title": "Top K",
         "type": "integer"
       },
+      "query_vector": {
+        "items": {
+          "type": "number"
+        },
+        "title": "Query Vector",
+        "type": "array"
+      },
       "chunks": {
         "items": {
           "$ref": "#/$defs/ContextChunk"
@@ -1175,9 +1189,98 @@
             },
             "title": "Citations",
             "type": "array"
+          },
+          "route_intent": {
+            "default": "",
+            "title": "Route Intent",
+            "type": "string"
+          },
+          "coverage": {
+            "default": 0,
+            "title": "Coverage",
+            "type": "number"
+          },
+          "graph_edges": {
+            "items": {
+              "$ref": "#/$defs/KnowledgeGraphEdge"
+            },
+            "title": "Graph Edges",
+            "type": "array"
           }
         },
         "title": "EvidencePack",
+        "type": "object"
+      },
+      "GraphExpansion": {
+        "description": "Knowledge-graph expansion metadata for an agentic retrieval run.",
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "query_terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Query Terms",
+            "type": "array"
+          },
+          "expanded_terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expanded Terms",
+            "type": "array"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/$defs/KnowledgeGraphEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          }
+        },
+        "title": "GraphExpansion",
+        "type": "object"
+      },
+      "KnowledgeGraphEdge": {
+        "description": "A lightweight relationship inferred from retrieved evidence.",
+        "properties": {
+          "edge_id": {
+            "title": "Edge Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "evidence_chunk_id": {
+            "default": "",
+            "title": "Evidence Chunk Id",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "edge_id",
+          "source",
+          "relation",
+          "target"
+        ],
+        "title": "KnowledgeGraphEdge",
         "type": "object"
       },
       "RetrievalAttempt": {
@@ -1234,6 +1337,25 @@
             "default": 0,
             "title": "Confidence",
             "type": "number"
+          },
+          "strategy": {
+            "default": "",
+            "title": "Strategy",
+            "type": "string"
+          },
+          "expanded_terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expanded Terms",
+            "type": "array"
+          },
+          "graph_edge_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Graph Edge Ids",
+            "type": "array"
           }
         },
         "required": [
@@ -1241,6 +1363,59 @@
           "query"
         ],
         "title": "RetrievalAttempt",
+        "type": "object"
+      },
+      "RetrievalRoute": {
+        "description": "Dynamic route selected for a user query before retrieval.",
+        "properties": {
+          "intent": {
+            "default": "chat",
+            "enum": [
+              "chat",
+              "consult",
+              "risk"
+            ],
+            "title": "Intent",
+            "type": "string"
+          },
+          "target_workflow": {
+            "default": "",
+            "title": "Target Workflow",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "required_source_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Source Types",
+            "type": "array"
+          },
+          "retrieval_strategy": {
+            "default": "adaptive",
+            "enum": [
+              "none",
+              "no_retrieval",
+              "single_pass",
+              "adaptive",
+              "graph_augmented",
+              "multi_hop",
+              "risk_focused"
+            ],
+            "title": "Retrieval Strategy",
+            "type": "string"
+          }
+        },
+        "title": "RetrievalRoute",
         "type": "object"
       }
     },
@@ -1250,11 +1425,41 @@
         "title": "Runtime",
         "type": "string"
       },
+      "route": {
+        "$ref": "#/$defs/RetrievalRoute"
+      },
+      "retrieval_route": {
+        "$ref": "#/$defs/RetrievalRoute"
+      },
+      "graph_expansion": {
+        "$ref": "#/$defs/GraphExpansion"
+      },
       "attempts": {
         "items": {
           "$ref": "#/$defs/RetrievalAttempt"
         },
         "title": "Attempts",
+        "type": "array"
+      },
+      "raw_hits": {
+        "items": {
+          "$ref": "#/$defs/ContextChunk"
+        },
+        "title": "Raw Hits",
+        "type": "array"
+      },
+      "reranked_hits": {
+        "items": {
+          "$ref": "#/$defs/ContextChunk"
+        },
+        "title": "Reranked Hits",
+        "type": "array"
+      },
+      "rejected_chunks": {
+        "items": {
+          "$ref": "#/$defs/ContextChunk"
+        },
+        "title": "Rejected Chunks",
         "type": "array"
       },
       "evidence_pack": {
@@ -1270,6 +1475,11 @@
         },
         "title": "Trace",
         "type": "array"
+      },
+      "vector_store": {
+        "default": "inline",
+        "title": "Vector Store",
+        "type": "string"
       }
     },
     "title": "AgenticRetrievalResponse",
@@ -1476,6 +1686,133 @@
       "grounded"
     ],
     "title": "GroundingCheckResponse",
+    "type": "object"
+  },
+  "RetrievalRoute": {
+    "description": "Dynamic route selected for a user query before retrieval.",
+    "properties": {
+      "intent": {
+        "default": "chat",
+        "enum": [
+          "chat",
+          "consult",
+          "risk"
+        ],
+        "title": "Intent",
+        "type": "string"
+      },
+      "target_workflow": {
+        "default": "",
+        "title": "Target Workflow",
+        "type": "string"
+      },
+      "confidence": {
+        "default": 0,
+        "title": "Confidence",
+        "type": "number"
+      },
+      "rationale": {
+        "default": "",
+        "title": "Rationale",
+        "type": "string"
+      },
+      "required_source_types": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Required Source Types",
+        "type": "array"
+      },
+      "retrieval_strategy": {
+        "default": "adaptive",
+        "enum": [
+          "none",
+          "no_retrieval",
+          "single_pass",
+          "adaptive",
+          "graph_augmented",
+          "multi_hop",
+          "risk_focused"
+        ],
+        "title": "Retrieval Strategy",
+        "type": "string"
+      }
+    },
+    "title": "RetrievalRoute",
+    "type": "object"
+  },
+  "GraphExpansion": {
+    "$defs": {
+      "KnowledgeGraphEdge": {
+        "description": "A lightweight relationship inferred from retrieved evidence.",
+        "properties": {
+          "edge_id": {
+            "title": "Edge Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "evidence_chunk_id": {
+            "default": "",
+            "title": "Evidence Chunk Id",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "edge_id",
+          "source",
+          "relation",
+          "target"
+        ],
+        "title": "KnowledgeGraphEdge",
+        "type": "object"
+      }
+    },
+    "description": "Knowledge-graph expansion metadata for an agentic retrieval run.",
+    "properties": {
+      "enabled": {
+        "default": false,
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "query_terms": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Query Terms",
+        "type": "array"
+      },
+      "expanded_terms": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Expanded Terms",
+        "type": "array"
+      },
+      "edges": {
+        "items": {
+          "$ref": "#/$defs/KnowledgeGraphEdge"
+        },
+        "title": "Edges",
+        "type": "array"
+      }
+    },
+    "title": "GraphExpansion",
     "type": "object"
   }
 }

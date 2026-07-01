@@ -63,10 +63,12 @@ class RetrievalRoute(BaseModel):
     required_source_types: list[str] = Field(default_factory=list)
     retrieval_strategy: Literal[
         "none",
+        "no_retrieval",
         "single_pass",
         "adaptive",
         "graph_augmented",
         "multi_hop",
+        "risk_focused",
     ] = "adaptive"
 
 

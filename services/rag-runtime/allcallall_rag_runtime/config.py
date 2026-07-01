@@ -19,6 +19,15 @@ class RAGRuntimeConfig(BaseSettings):
     top_k: int = 8
     max_steps: int = 3
     min_confidence: float = 0.6
+    enable_graph_expansion: bool = True
+    enable_llamaindex_baseline: bool = False
+
+    # Optional vector store adapter. Production AllCallAll still authorizes retrieval via Go.
+    vector_store: str = "none"
+    qdrant_url: str = ""
+    qdrant_collection: str = "allcallall_context_chunks"
+    qdrant_api_key: str = ""
+    qdrant_timeout_sec: float = 5.0
 
     model_config = {"env_prefix": "PY_RAG_"}
 

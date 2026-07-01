@@ -4,6 +4,8 @@
     "query": "Summarize the launch risk discussed in the meeting",
     "required_source_types": ["meeting_transcript"],
     "expected_top_source_type": "meeting_transcript",
+    "expected_route_intent": "risk",
+    "requires_graph_expansion": true,
     "chunks": [
       {
         "chunk_id": "mt-1",
@@ -39,6 +41,8 @@
     "query": "What is the approval policy for supplier launch readiness?",
     "required_source_types": ["knowledge"],
     "expected_top_source_type": "knowledge",
+    "expected_route_intent": "consult",
+    "requires_graph_expansion": true,
     "chunks": [
       {
         "chunk_id": "msg-2",
@@ -63,6 +67,7 @@
     "query": "Which legal clause blocks the external data transfer?",
     "required_source_types": ["knowledge"],
     "expected_top_source_type": "",
+    "expected_route_intent": "consult",
     "insufficient_context": true,
     "chunks": [
       {

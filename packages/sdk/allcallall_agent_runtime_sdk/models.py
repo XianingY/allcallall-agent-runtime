@@ -175,6 +175,7 @@ class RetrievalQueryRequest(BaseModel):
     query: str
     source_types: list[str] = Field(default_factory=list)
     top_k: int = 8
+    query_vector: list[float] = Field(default_factory=list)
     chunks: list[ContextChunk] = Field(default_factory=list)
 
 
@@ -207,11 +208,16 @@ class AgenticRetrievalRequest(RetrievalQueryRequest):
 class AgenticRetrievalResponse(BaseModel):
     runtime: str = "python_rag"
     route: RetrievalRoute = Field(default_factory=RetrievalRoute)
+    retrieval_route: RetrievalRoute = Field(default_factory=RetrievalRoute)
     graph_expansion: GraphExpansion = Field(default_factory=GraphExpansion)
     attempts: list[RetrievalAttempt] = Field(default_factory=list)
+    raw_hits: list[ContextChunk] = Field(default_factory=list)
+    reranked_hits: list[ContextChunk] = Field(default_factory=list)
+    rejected_chunks: list[ContextChunk] = Field(default_factory=list)
     evidence_pack: EvidencePack = Field(default_factory=EvidencePack)
     context_sufficiency: ContextSufficiency = Field(default_factory=ContextSufficiency)
     trace: list[dict[str, Any]] = Field(default_factory=list)
+    vector_store: str = "inline"
 
 
 class GroundingCheckRequest(BaseModel):

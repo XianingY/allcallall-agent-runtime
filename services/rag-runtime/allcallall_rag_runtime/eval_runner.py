@@ -66,14 +66,29 @@ def run_case(case: RAGEvalCase) -> RAGEvalCaseResult:
         errors.append("expected grounded answer from selected citations")
 
     retrieval_refined = len(agentic.attempts) > 1 or bool(agentic.evidence_pack.selected_chunk_ids)
+    route_matched = True
+    if case.expected_route_intent:
+        route_matched = agentic.route.intent == case.expected_route_intent
+        if not route_matched:
+            errors.append(
+                f"expected route_intent={case.expected_route_intent}, got {agentic.route.intent}"
+            )
+    graph_expanded = True
+    if case.requires_graph_expansion:
+        graph_expanded = agentic.graph_expansion.enabled
+        if not graph_expanded:
+            errors.append("expected graph expansion to infer at least one evidence edge")
     passed = not errors
     return RAGEvalCaseResult(
         name=case.name,
         passed=passed,
         top_source_type=top_source_type,
+        route_intent=agentic.route.intent,
         grounding_passed=grounding_passed,
         sufficiency_passed=sufficiency_passed,
         retrieval_refined=retrieval_refined,
+        route_matched=route_matched,
+        graph_expanded=graph_expanded,
         errors=errors,
     )
 
@@ -89,6 +104,8 @@ def summarize(results: list[RAGEvalCaseResult]) -> RAGEvalSummary:
         grounding_pass_rate=rate(results, lambda item: item.grounding_passed),
         sufficiency_pass_rate=rate(results, lambda item: item.sufficiency_passed),
         retrieval_refinement_success_rate=rate(results, lambda item: item.retrieval_refined),
+        route_match_rate=rate(results, lambda item: item.route_matched),
+        graph_expansion_rate=rate(results, lambda item: item.graph_expanded),
     )
 
 
@@ -126,13 +143,18 @@ def render_markdown(report: RAGEvalReport) -> str:
         f"- Grounding pass rate: {summary.grounding_pass_rate:.0%}",
         f"- Sufficiency pass rate: {summary.sufficiency_pass_rate:.0%}",
         f"- Retrieval refinement success rate: {summary.retrieval_refinement_success_rate:.0%}",
+        f"- Route match rate: {summary.route_match_rate:.0%}",
+        f"- Graph expansion rate: {summary.graph_expansion_rate:.0%}",
         "",
         "## Cases",
         "",
     ]
     for case in report.cases:
         status = "PASS" if case.passed else "FAIL"
-        lines.append(f"- `{status}` {case.name}: top_source_type={case.top_source_type or '<none>'}")
+        lines.append(
+            f"- `{status}` {case.name}: top_source_type={case.top_source_type or '<none>'}, "
+            f"route={case.route_intent or '<none>'}"
+        )
         for error in case.errors:
             lines.append(f"  - {error}")
     lines.append("")
