@@ -90,6 +90,35 @@ def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
     if not prompt_schema_valid:
         errors.append("prompt version or trace schema missing")
 
+    route_matched = True
+    if case.expected_route:
+        route_matched = response.route_decision.route == case.expected_route
+        if not route_matched:
+            errors.append(f"expected route {case.expected_route}, got {response.route_decision.route}")
+
+    loop_completed = all(item.completed for item in response.loop_traces)
+    if not loop_completed:
+        errors.append("one or more bounded loops failed")
+
+    valid_stop_reasons = {
+        "completed",
+        "approval_required",
+        "insufficient_context",
+        "grounding_failed",
+        "max_iterations",
+        "runtime_error",
+    }
+    stop_reason_valid = response.stop_reason in valid_stop_reasons
+    if not stop_reason_valid:
+        errors.append(f"unexpected stop reason: {response.stop_reason}")
+
+    memory_reflection_precise = True
+    proposal_names_set = set(proposal_names)
+    if response.memory_reflection.memory_write_recommended:
+        memory_reflection_precise = "upsert_agent_memory" in proposal_names_set
+    if not memory_reflection_precise:
+        errors.append("memory reflection recommended a write without matching approval proposal")
+
     grounding_check_passed = bool(response.grounding_check_result) and response.grounding_check_result.get(
         "grounded", False
     )
@@ -129,6 +158,10 @@ def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
         and approval_safe
         and unsupported_guard
         and prompt_schema_valid
+        and route_matched
+        and loop_completed
+        and stop_reason_valid
+        and memory_reflection_precise
         and retrieval_refinement
         and citation_coverage
         and max_iteration_compliant
@@ -146,6 +179,10 @@ def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
         approval_safe=approval_safe,
         unsupported_claim_guarded=unsupported_guard,
         prompt_schema_valid=prompt_schema_valid,
+        route_matched=route_matched,
+        loop_completed=loop_completed,
+        stop_reason_valid=stop_reason_valid,
+        memory_reflection_precise=memory_reflection_precise,
         grounding_check_passed=grounding_check_passed,
         retrieval_refinement_succeeded=retrieval_refinement,
         citation_coverage_passed=citation_coverage,
@@ -168,6 +205,10 @@ def summarize_results(results: list[WorkflowEvalCaseResult]) -> WorkflowEvalSumm
         approval_safety_rate=rate(results, "approval_safe"),
         unsupported_claim_guard_rate=rate(results, "unsupported_claim_guarded"),
         prompt_schema_valid_rate=rate(results, "prompt_schema_valid"),
+        route_accuracy=rate(results, "route_matched"),
+        loop_completion_rate=rate(results, "loop_completed"),
+        stop_reason_valid_rate=rate(results, "stop_reason_valid"),
+        memory_reflection_precision=rate(results, "memory_reflection_precise"),
         grounding_check_rate=rate(results, "grounding_check_passed"),
         retrieval_refinement_success_rate=rate(results, "retrieval_refinement_succeeded"),
         citation_coverage_rate=rate(results, "citation_coverage_passed"),
@@ -200,6 +241,10 @@ def format_markdown(report: WorkflowEvalReport) -> str:
         f"- Tool intent match: `{summary.tool_intent_match_rate * 100:.1f}%`",
         f"- Approval safety: `{summary.approval_safety_rate * 100:.1f}%`",
         f"- Prompt schema valid: `{summary.prompt_schema_valid_rate * 100:.1f}%`",
+        f"- Route accuracy: `{summary.route_accuracy * 100:.1f}%`",
+        f"- Loop completion: `{summary.loop_completion_rate * 100:.1f}%`",
+        f"- Stop reason valid: `{summary.stop_reason_valid_rate * 100:.1f}%`",
+        f"- Memory reflection precision: `{summary.memory_reflection_precision * 100:.1f}%`",
         f"- Grounding check: `{summary.grounding_check_rate * 100:.1f}%`",
         f"- Agentic retrieval refinement: `{summary.retrieval_refinement_success_rate * 100:.1f}%`",
         f"- Evidence citation coverage: `{summary.citation_coverage_rate * 100:.1f}%`",

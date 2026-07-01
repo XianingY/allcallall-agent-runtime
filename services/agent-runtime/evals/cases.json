@@ -41,6 +41,7 @@
       "max_iterations": { "searcher": 3, "risk_analyst": 2 }
     },
     "expected_status": "requires_action",
+    "expected_route": "MEETING_RECAP",
     "required_output_substrings": ["Meeting Brief"],
     "required_citation_source_types": ["meeting_transcript"],
     "required_tool_proposals": ["write_conversation_message", "upsert_agent_memory"],
@@ -91,6 +92,7 @@
       "max_iterations": { "searcher": 3, "risk_analyst": 2 }
     },
     "expected_status": "requires_action",
+    "expected_route": "MEETING_RECAP",
     "required_output_substrings": ["Meeting Brief"],
     "required_citation_source_types": ["meeting_transcript", "knowledge"],
     "required_tool_proposals": ["write_conversation_message", "upsert_agent_memory"],
@@ -125,6 +127,7 @@
       "max_iterations": { "searcher": 3, "risk_analyst": 2 }
     },
     "expected_status": "requires_action",
+    "expected_route": "RISK",
     "required_output_substrings": ["Risk Review", "approval_sensitive_action"],
     "required_citation_source_types": ["meeting_transcript"],
     "required_tool_proposals": ["write_conversation_message", "upsert_agent_memory"],
@@ -166,6 +169,7 @@
       "max_iterations": { "searcher": 3, "risk_analyst": 2 }
     },
     "expected_status": "requires_action",
+    "expected_route": "FOLLOW_UP",
     "required_output_substrings": ["Follow-up Plan"],
     "required_citation_source_types": ["conversation"],
     "required_tool_proposals": ["write_conversation_message", "create_follow_up_task", "upsert_agent_memory"],
@@ -197,6 +201,7 @@
       "max_iterations": { "searcher": 2, "risk_analyst": 1 }
     },
     "expected_status": "ready",
+    "expected_route": "CONSULT",
     "required_output_substrings": ["Context QA"],
     "required_citation_source_types": ["knowledge"],
     "required_tool_proposals": [],
@@ -218,6 +223,7 @@
       "max_iterations": { "searcher": 2, "risk_analyst": 1 }
     },
     "expected_status": "ready",
+    "expected_route": "CONSULT",
     "required_output_substrings": ["不足"],
     "required_citation_source_types": [],
     "required_tool_proposals": [],
@@ -253,6 +259,7 @@
       "max_iterations": { "searcher": 3, "risk_analyst": 2 }
     },
     "expected_status": "requires_action",
+    "expected_route": "MEETING_RECAP",
     "required_output_substrings": ["Meeting Brief"],
     "required_citation_source_types": ["meeting_transcript"],
     "required_tool_proposals": ["write_conversation_message", "upsert_agent_memory"],
@@ -291,6 +298,7 @@
       "max_iterations": { "searcher": 3, "risk_analyst": 2 }
     },
     "expected_status": "requires_action",
+    "expected_route": "RISK",
     "required_output_substrings": ["Risk Review", "budget_or_timeline_risk"],
     "required_citation_source_types": ["conversation"],
     "required_tool_proposals": ["write_conversation_message", "upsert_agent_memory"],
@@ -325,6 +333,7 @@
       "max_iterations": { "searcher": 3, "risk_analyst": 2 }
     },
     "expected_status": "requires_action",
+    "expected_route": "FOLLOW_UP",
     "required_output_substrings": ["Follow-up Plan"],
     "required_citation_source_types": ["meeting_transcript"],
     "required_tool_proposals": ["create_follow_up_task"],

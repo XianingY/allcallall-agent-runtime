@@ -22,3 +22,15 @@ Read skills may be requested by the Agent Runtime and executed by the Go backend
 
 Write skills are proposal-only in Python. The response must include tool name, arguments, reason, idempotency key, and `approval_required=true`.
 
+## Async Tool Queue Metadata
+
+Write proposals also include queue metadata for the Go backend:
+
+- `execution_mode=async_after_approval`
+- `queue_name`
+- `priority`
+- `max_attempts`
+- `rate_limit_key`
+- `dead_letter_queue`
+
+Python never executes these writes. Go owns approval creation, schema validation, queue enqueue, retry, dead-letter handling, audit logs, and final side effects.

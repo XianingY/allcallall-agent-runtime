@@ -7,6 +7,8 @@ The runtime is intentionally separated from the AllCallAll Go backend:
 - Python owns Agent orchestration, LangGraph workflows, bounded ReAct loops, prompt/provider adapters, Agentic RAG, rerank, grounding checks, traces, citations, tool proposals, and deterministic eval.
 - Go remains the product source of truth for users, organizations, conversations, meetings, transcripts, permissions, approvals, audit logs, and write execution.
 
+The runtime is designed as a production-grade Agent Runtime Harness rather than a simple MCP/RAG/function-calling demo. It now includes dynamic CHAT/CONSULT/RISK routing, knowledge-graph query expansion, adaptive multi-hop RAG, MemoryAgent reflection, RiskGuardian-style assessment, approval-gated async tool queue metadata, and deterministic eval evidence.
+
 ## Repository Layout
 
 - `services/agent-runtime`: FastAPI + LangGraph Agent Runtime.
@@ -60,10 +62,19 @@ RAG Runtime:
 
 - `GET /health`
 - `GET /ready`
+- `GET /v1/capabilities`
 - `POST /v1/retrieval/query`
 - `POST /v1/retrieval/rerank`
 - `POST /v1/retrieval/agentic`
 - `POST /v1/grounding/check`
+
+## Runtime Harness Capabilities
+
+- Dynamic intent routing chooses `chat`, `consult`, or `risk` before retrieval and records the route in responses and traces.
+- Agentic RAG uses bounded retrieval refinement, source-scope planning, rerank, evidence packs, context sufficiency, and citation grounding.
+- Knowledge-graph expansion infers lightweight evidence edges from retrieved chunks and injects expanded terms into retrieval attempts.
+- Multi-agent workflow roles include Searcher, MemoryAgent, Summarizer, and RiskGuardian-style risk assessment under a supervisor trace.
+- Write tools remain proposal-only, but proposals now carry async queue, retry, rate-limit, idempotency, and dead-letter metadata for Go-side execution.
 
 ## Safety Boundary
 

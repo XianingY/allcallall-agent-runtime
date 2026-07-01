@@ -4,7 +4,7 @@ PYTHON ?= $(abspath $(VENV)/bin/python)
 AGENT_PORT ?= 8090
 RAG_PORT ?= 8091
 
-.PHONY: venv install-dev test lint typecheck contracts contracts-check agent-eval rag-eval verify docker-build run-agent-runtime run-rag-runtime
+.PHONY: venv install-dev test lint typecheck contracts contracts-check agent-eval rag-eval portfolio-eval ai-agent-portfolio-eval verify docker-build run-agent-runtime run-rag-runtime
 
 venv:
 	@if [ ! -x "$(PYTHON)" ]; then $(SYSTEM_PYTHON) -m venv $(VENV); fi
@@ -42,6 +42,11 @@ agent-eval:
 
 rag-eval:
 	cd services/rag-runtime && $(PYTHON) -m allcallall_rag_runtime.eval_runner --out evals/reports
+
+portfolio-eval:
+	$(PYTHON) scripts/portfolio_eval.py --out docs/generated-ai-agent-portfolio-eval
+
+ai-agent-portfolio-eval: portfolio-eval
 
 verify: test lint typecheck contracts-check agent-eval rag-eval
 

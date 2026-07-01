@@ -1,0 +1,36 @@
+{
+  "scope": "deterministic regression and task-level eval; not online product-quality measurement",
+  "agent_runtime": {
+    "runtime": "python_langgraph",
+    "provider": "rules",
+    "cases": {
+      "passed": 9,
+      "total": 9
+    },
+    "task_success_rate": 1.0,
+    "route_accuracy": 1.0,
+    "loop_completion_rate": 1.0,
+    "stop_reason_valid_rate": 1.0,
+    "tool_intent_match_rate": 1.0,
+    "approval_safety_rate": 1.0,
+    "citation_coverage_rate": 1.0,
+    "grounding_check_rate": 1.0,
+    "unsupported_claim_guard_rate": 1.0,
+    "memory_reflection_precision": 1.0,
+    "max_iteration_compliance_rate": 1.0
+  },
+  "rag_runtime": {
+    "runtime": "python_rag",
+    "provider": "rules",
+    "cases": {
+      "passed": 3,
+      "total": 3
+    },
+    "rerank_top_match_rate": 1.0,
+    "route_match_rate": 1.0,
+    "graph_expansion_rate": 1.0,
+    "grounding_pass_rate": 1.0,
+    "sufficiency_pass_rate": 1.0,
+    "retrieval_refinement_success_rate": 1.0
+  }
+}

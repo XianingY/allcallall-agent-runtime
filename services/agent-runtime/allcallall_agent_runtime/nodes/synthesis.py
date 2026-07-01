@@ -18,6 +18,7 @@ from ..tool_bridge import GoToolBridge, ToolBridgeError
 from ..helpers import (
     READ_TOOL_CONTEXT_CHUNKS,
     READ_TOOL_RECENT_MEETINGS,
+    WORKFLOW_CONTEXT_QA,
     citations_from_chunks,
     dedupe_citations,
     request_with_runtime_context,
@@ -377,6 +378,7 @@ def build_risk_assessment(flags: list[str]) -> RiskAssessment:
 
 def reflect_and_plan_memory(state: GraphState) -> GraphState:
     """Reflect on the grounded run and decide whether memory should be upserted."""
+    request = state["request"]
     sufficiency = state.get("context_sufficiency", ContextSufficiency())
     summary = state.get("summary", "")
     risk_flags = state.get("risk_flags", [])
@@ -391,20 +393,23 @@ def reflect_and_plan_memory(state: GraphState) -> GraphState:
     risk_lessons = [f"guard:{item}" for item in risk_flags]
     reinforcement_queries = unique_strings(
         [
-            state["request"].goal,
-            f"{state['request'].goal} {route_intent} memory",
+            request.goal,
+            f"{request.goal} {route_intent} memory",
             *risk_flags,
         ]
     )[:4]
+    should_write_memory = request.preset != WORKFLOW_CONTEXT_QA and sufficiency.sufficient and bool(summary)
     reflection = MemoryReflection(
         conversation_summary=summary[:300],
         key_insights=key_insights,
         risk_lessons=risk_lessons,
         reinforcement_queries=reinforcement_queries,
-        memory_write_recommended=sufficiency.sufficient and bool(summary),
+        memory_write_recommended=should_write_memory,
         reason=(
             "grounded output is sufficient for scoped memory"
-            if sufficiency.sufficient
+            if should_write_memory
+            else "skip memory write for read-only context QA"
+            if request.preset == WORKFLOW_CONTEXT_QA
             else "skip memory write because context is insufficient"
         ),
     )

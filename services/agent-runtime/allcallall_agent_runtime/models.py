@@ -417,6 +417,7 @@ class WorkflowEvalCase(BaseModel):
     required_citation_source_types: list[str] = Field(default_factory=list)
     required_tool_proposals: list[str] = Field(default_factory=list)
     forbidden_tool_proposals: list[str] = Field(default_factory=list)
+    expected_route: str = ""
     requires_unsupported_claim_guard: bool = False
 
 
@@ -433,6 +434,10 @@ class WorkflowEvalCaseResult(BaseModel):
     approval_safe: bool
     unsupported_claim_guarded: bool
     prompt_schema_valid: bool = True
+    route_matched: bool = True
+    loop_completed: bool = True
+    stop_reason_valid: bool = True
+    memory_reflection_precise: bool = True
     grounding_check_passed: bool = True
     retrieval_refinement_succeeded: bool = True
     citation_coverage_passed: bool = True
@@ -452,6 +457,10 @@ class WorkflowEvalSummary(BaseModel):
     approval_safety_rate: float = 0
     unsupported_claim_guard_rate: float = 0
     prompt_schema_valid_rate: float = 0
+    route_accuracy: float = 0
+    loop_completion_rate: float = 0
+    stop_reason_valid_rate: float = 0
+    memory_reflection_precision: float = 0
     grounding_check_rate: float = 0
     retrieval_refinement_success_rate: float = 0
     citation_coverage_rate: float = 0
