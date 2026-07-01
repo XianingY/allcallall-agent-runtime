@@ -264,10 +264,20 @@
             "title": "Modality",
             "type": "string"
           },
+          "filename": {
+            "default": "",
+            "title": "Filename",
+            "type": "string"
+          },
           "mime_type": {
             "default": "",
             "title": "Mime Type",
             "type": "string"
+          },
+          "size_bytes": {
+            "default": 0,
+            "title": "Size Bytes",
+            "type": "integer"
           },
           "uri": {
             "default": "",
@@ -283,6 +293,26 @@
             "default": "",
             "title": "Extracted Text",
             "type": "string"
+          },
+          "ocr_text": {
+            "default": "",
+            "title": "Ocr Text",
+            "type": "string"
+          },
+          "caption_text": {
+            "default": "",
+            "title": "Caption Text",
+            "type": "string"
+          },
+          "transcript_text": {
+            "default": "",
+            "title": "Transcript Text",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
           }
         },
         "title": "InputAttachment",

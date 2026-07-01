@@ -143,6 +143,9 @@ def route_text(request: WorkflowRequest) -> str:
     parts.extend(chunk.snippet for chunk in request.context_chunks)
     parts.extend(attachment.description for attachment in request.attachments)
     parts.extend(attachment.extracted_text for attachment in request.attachments)
+    parts.extend(attachment.ocr_text for attachment in request.attachments)
+    parts.extend(attachment.caption_text for attachment in request.attachments)
+    parts.extend(attachment.transcript_text for attachment in request.attachments)
     return " ".join(part for part in parts if part)
 
 

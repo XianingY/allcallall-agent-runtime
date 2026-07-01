@@ -10,6 +10,7 @@ from allcallall_agent_runtime.models import (
     AgenticRAGConfig,
     Citation,
     ContextChunk,
+    InputAttachment,
     MeetingBriefRequest,
     MeetingTranscriptSegment,
     WorkflowRequest,
@@ -252,6 +253,49 @@ def test_react_agent_runtime_uses_python_langgraph_schema() -> None:
     assert response.summary.startswith("ReAct Agent")
     assert response.proposed_tool_calls
     assert all(item.idempotency_key.startswith("agent:103:") for item in response.proposed_tool_calls)
+
+
+def test_multimodal_attachment_metadata_is_visible_to_harness() -> None:
+    response = run_react_agent(
+        WorkflowRequest(
+            organization_id=1,
+            user_id=7,
+            conversation_id=42,
+            agent_run_id=104,
+            workflow_run_id=0,
+            preset="react_general",
+            goal="请结合附件说明风险。",
+            attachments=[
+                InputAttachment(
+                    attachment_id="img-1",
+                    modality="image",
+                    filename="whiteboard.png",
+                    mime_type="image/png",
+                    caption_text="whiteboard shows launch approval blocker",
+                    ocr_text="QA approval blocker",
+                    size_bytes=1024,
+                ),
+                InputAttachment(
+                    attachment_id="audio-1",
+                    modality="audio",
+                    transcript_text="audio transcript mentions supplier delay risk",
+                ),
+            ],
+            context_chunks=[
+                ContextChunk(
+                    chunk_id="attachment-context",
+                    source_type="message",
+                    source_id="1",
+                    snippet="QA approval blocker and supplier delay risk",
+                    score=10,
+                )
+            ],
+        )
+    )
+
+    assert "image_metadata" in response.harness.input_modalities
+    assert "audio_transcript" in response.harness.input_modalities
+    assert response.route_decision.route in {"CHAT", "RISK"}
 
 
 def test_context_qa_guard_when_context_is_missing() -> None:

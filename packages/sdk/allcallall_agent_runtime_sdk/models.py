@@ -57,10 +57,16 @@ class MeetingTranscriptSegment(BaseModel):
 class InputAttachment(BaseModel):
     attachment_id: str = ""
     modality: Literal["text", "image", "audio", "video", "file"] = "file"
+    filename: str = ""
     mime_type: str = ""
+    size_bytes: int = 0
     uri: str = ""
     description: str = ""
     extracted_text: str = ""
+    ocr_text: str = ""
+    caption_text: str = ""
+    transcript_text: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkflowRequest(BaseModel):

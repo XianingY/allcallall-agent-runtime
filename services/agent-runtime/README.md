@@ -12,6 +12,12 @@ The runtime now behaves as an Agent Runtime Harness:
 - Reflection memory is generated after grounding, then persisted only through approval-gated write proposals.
 - Tool proposals carry async queue, retry, rate-limit, idempotency, and dead-letter metadata for Go-side execution.
 
+Multimodal status:
+
+- `InputAttachment` supports `text`, `image`, `audio`, `video`, and generic `file` metadata.
+- Go remains responsible for file permissions and preprocessing. Audio should arrive as transcript text; images can provide OCR/caption text; video can provide transcript or user-provided description.
+- Python consumes structured metadata only and does not directly read object storage in v1.
+
 Supported presets:
 
 - `meeting_brief`
