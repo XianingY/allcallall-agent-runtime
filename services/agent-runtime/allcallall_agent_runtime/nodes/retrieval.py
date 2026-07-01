@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from ..models import (
     ContextChunk,
+    ContextSufficiency,
+    CriticResult,
     EvidencePack,
     GraphExpansion,
     RetrievalAttempt,
@@ -351,3 +353,57 @@ def grounding_check(state: GraphState) -> GraphState:
             "unsupported_claims": result.unsupported_claims,
         },
     }
+
+
+def critic_check(state: GraphState) -> GraphState:
+    """Run supervisor critic checks before the approval boundary."""
+    trace = state.get("trace_events", [])
+    sufficiency = state.get("context_sufficiency", ContextSufficiency())
+    grounding = state.get("grounding_check_result", {})
+    pack = state.get("evidence_pack", EvidencePack())
+    plan = state.get("retrieval_plan", RetrievalPlan())
+    attempts = state.get("retrieval_attempts", [])
+    proposals = state.get("proposed_tool_calls", [])
+    issues: list[str] = []
+    grounding_passed = bool(grounding.get("grounded", True))
+    if not sufficiency.sufficient:
+        issues.append("insufficient_context_guarded")
+    if not grounding_passed:
+        issues.append("grounding_failed")
+    if len(attempts) > plan.max_steps:
+        issues.append("retrieval_budget_exceeded")
+    write_safe = all(item.approval_required for item in proposals)
+    if not write_safe:
+        issues.append("unsafe_write_proposal")
+    citation_coverage = pack.coverage
+    if sufficiency.sufficient and pack.citations and citation_coverage <= 0:
+        issues.append("citation_coverage_missing")
+    result = CriticResult(
+        passed=grounding_passed and write_safe and len(attempts) <= plan.max_steps,
+        issues=issues,
+        citation_coverage=citation_coverage,
+        budget_respected=len(attempts) <= plan.max_steps,
+        write_proposal_safe=write_safe,
+        grounding_passed=grounding_passed,
+        context_sufficient=sufficiency.sufficient,
+    )
+    trace.append(TraceEvent(event="graph.node.started", node="critic_check", status="running"))
+    trace.append(
+        TraceEvent(
+            event="critic.check",
+            node="critic_check",
+            status="completed" if result.passed else "guarded",
+            observation="; ".join(result.issues) if result.issues else "critic checks passed",
+            metadata={
+                "passed": result.passed,
+                "issues": result.issues,
+                "citation_coverage": result.citation_coverage,
+                "budget_respected": result.budget_respected,
+                "write_proposal_safe": result.write_proposal_safe,
+                "grounding_passed": result.grounding_passed,
+                "context_sufficient": result.context_sufficient,
+            },
+        )
+    )
+    trace.append(TraceEvent(event="graph.node.completed", node="critic_check", status="completed"))
+    return {"trace_events": trace, "critic_result": result}

@@ -8,6 +8,7 @@ from .models import (
     Citation,
     ContextChunk,
     ContextSufficiency,
+    CriticResult,
     EvidencePack,
     GraphExpansion,
     IntentRoute,
@@ -54,3 +55,4 @@ class GraphState(TypedDict, total=False):
     proposed_tool_calls: list[ToolProposal]
     prompt_version: str
     grounding_check_result: dict[str, Any]
+    critic_result: CriticResult

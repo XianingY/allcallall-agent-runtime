@@ -136,7 +136,13 @@ class AllCallAllAgentHarness:
         prompt_version = result.get("prompt_version", prompt_version_for(request))
         loop_traces = self._loop_traces(request, role_results)
         budget = self._aggregate_budget(loop_traces, proposed)
-        critic_result = self._critic_result(context_sufficiency, grounding, evidence_pack, proposed, loop_traces)
+        critic_result = result.get("critic_result") or self._critic_result(
+            context_sufficiency,
+            grounding,
+            evidence_pack,
+            proposed,
+            loop_traces,
+        )
         stop_reason = self._stop_reason(status, context_sufficiency, critic_result, loop_traces)
 
         return WorkflowResponse(

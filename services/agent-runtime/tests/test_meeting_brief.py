@@ -82,6 +82,7 @@ def test_meeting_brief_returns_trace_citations_and_write_proposals() -> None:
     assert all(item.execution_mode == "async_after_approval" for item in response.proposed_tool_calls)
     assert all(item.dead_letter_queue for item in response.proposed_tool_calls)
     assert any(item.node == "approval_gate" for item in response.trace_events)
+    assert any(item.node == "critic_check" and item.event == "critic.check" for item in response.trace_events)
     assert any(item.node == "memory_agent" for item in response.trace_events)
     assert any(item.event == "memory.reflect" for item in response.trace_events)
     search_events = [

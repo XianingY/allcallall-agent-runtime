@@ -10,6 +10,7 @@ from .state import GraphState
 from .nodes import (
     approval_gate,
     collect_context,
+    critic_check,
     decompose,
     finalize,
     memory_agent,
@@ -45,6 +46,7 @@ def build_workflow_graph() -> Any:
     graph.add_node("grounding_check", grounding_check)
     graph.add_node("memory_reflection", reflect_and_plan_memory)
     graph.add_node("propose_tools", propose_tools)
+    graph.add_node("critic_check", critic_check)
     graph.add_node("approval_gate", approval_gate)
     graph.add_node("finalize", finalize)
     graph.set_entry_point("collect_context")
@@ -63,7 +65,8 @@ def build_workflow_graph() -> Any:
     graph.add_edge("merge", "grounding_check")
     graph.add_edge("grounding_check", "memory_reflection")
     graph.add_edge("memory_reflection", "propose_tools")
-    graph.add_edge("propose_tools", "approval_gate")
+    graph.add_edge("propose_tools", "critic_check")
+    graph.add_edge("critic_check", "approval_gate")
     graph.add_edge("approval_gate", "finalize")
     graph.add_edge("finalize", END)
     return graph.compile()
