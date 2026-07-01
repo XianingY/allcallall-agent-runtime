@@ -6,6 +6,8 @@ from typing import Any
 
 from ..models import (
     ContextSufficiency,
+    MemoryReflection,
+    RiskAssessment,
     ToolProposal,
     TraceEvent,
     WorkflowRequest,
@@ -25,19 +27,27 @@ from ..state import GraphState
 def propose_tools(state: GraphState) -> GraphState:
     """Propose write tools based on workflow output."""
     request = state["request"]
+    risk_assessment = state.get("risk_assessment", RiskAssessment())
     base: dict[str, Any] = {
         "conversation_id": request.conversation_id,
         "summary": state.get("summary", ""),
         "action_items": state.get("action_items", []),
         "next_step": state.get("next_step", ""),
         "risk_flags": state.get("risk_flags", []),
+        "risk_assessment": risk_assessment.model_dump(),
     }
+    reflection = state.get("memory_reflection", MemoryReflection())
     message_arguments = {
         **base,
         "citations": [citation.model_dump(exclude_none=True) for citation in state.get("citations", [])],
+        "memory_reflection": reflection.model_dump(),
     }
     sufficiency = state.get("context_sufficiency", ContextSufficiency())
-    proposals = [] if not sufficiency.sufficient else workflow_tool_proposals(request, base, message_arguments)
+    proposals = (
+        []
+        if not sufficiency.sufficient
+        else workflow_tool_proposals(request, base, message_arguments, reflection)
+    )
     trace = state.get("trace_events", [])
     trace.append(TraceEvent(event="graph.node.started", node="propose_tools", status="running"))
     if not sufficiency.sufficient:
@@ -97,17 +107,22 @@ def workflow_tool_proposals(
     request: WorkflowRequest,
     base: dict[str, Any],
     message_arguments: dict[str, Any],
+    reflection: MemoryReflection | None = None,
 ) -> list[ToolProposal]:
     """Generate tool proposals based on workflow preset."""
     if request.preset == WORKFLOW_CONTEXT_QA:
         return []
     subject = runtime_subject_id(request)
+    priority = "high" if request.preset == WORKFLOW_RISK_REVIEW else "normal"
+    rate_limit_key = f"org:{request.organization_id}:conversation:{request.conversation_id}"
     proposals = [
         ToolProposal(
             tool_name=WRITE_CONVERSATION_MESSAGE,
             arguments=message_arguments,
             reason=f"Write the grounded {request.preset} result back to the conversation after human approval.",
             idempotency_key=f"{subject}:write_conversation_message:{request.preset}",
+            priority=priority,
+            rate_limit_key=rate_limit_key,
         )
     ]
     if request.preset == WORKFLOW_FOLLOW_UP_PLANNER:
@@ -121,6 +136,8 @@ def workflow_tool_proposals(
                 },
                 reason="Create a concrete follow-up task only after human approval.",
                 idempotency_key=f"{subject}:create_follow_up_task",
+                queue_name="agent_followups",
+                rate_limit_key=rate_limit_key,
             )
         )
         memory_key = "follow_up_commitments"
@@ -128,12 +145,21 @@ def workflow_tool_proposals(
         memory_key = "open_risk_register"
     else:
         memory_key = "latest_meeting_brief"
-    proposals.append(
-        ToolProposal(
-            tool_name=UPSERT_MEMORY,
-            arguments={**base, "key": memory_key},
-            reason=f"Persist {request.preset} output as scoped Agent memory after approval.",
-            idempotency_key=f"{subject}:upsert_conversation_memory:{memory_key}",
+    reflection = reflection or MemoryReflection()
+    if reflection.memory_write_recommended:
+        proposals.append(
+            ToolProposal(
+                tool_name=UPSERT_MEMORY,
+                arguments={
+                    **base,
+                    "key": memory_key,
+                    "reflection": reflection.model_dump(),
+                },
+                reason=f"Persist {request.preset} output as scoped Agent memory after approval.",
+                idempotency_key=f"{subject}:upsert_conversation_memory:{memory_key}",
+                queue_name="agent_memory",
+                priority=priority,
+                rate_limit_key=rate_limit_key,
+            )
         )
-    )
     return proposals

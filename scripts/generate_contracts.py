@@ -54,6 +54,17 @@ def build_contracts() -> dict[str, dict[str, Any]]:
             "ToolProposal",
             "EvidencePack",
             "ContextSufficiency",
+            "IntentRoute",
+            "RouteDecision",
+            "CriticResult",
+            "AgentHarnessMetadata",
+            "LoopBudget",
+            "LoopSpec",
+            "LoopStep",
+            "LoopTrace",
+            "GraphExpansion",
+            "MemoryReflection",
+            "RiskAssessment",
         ],
     )
     clear_app_modules()
@@ -69,6 +80,8 @@ def build_contracts() -> dict[str, dict[str, Any]]:
             "AgenticRetrievalResponse",
             "GroundingCheckRequest",
             "GroundingCheckResponse",
+            "RetrievalRoute",
+            "GraphExpansion",
         ],
     )
     return {"agent-runtime.schema.json": agent, "rag-runtime.schema.json": rag}

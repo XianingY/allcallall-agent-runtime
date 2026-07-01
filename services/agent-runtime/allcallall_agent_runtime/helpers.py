@@ -11,6 +11,9 @@ from .models import (
     ContextChunk,
     ContextSufficiency,
     EvidencePack,
+    GraphExpansion,
+    IntentRoute,
+    KnowledgeGraphEdge,
     RetrievalPlanStep,
     WorkflowRequest,
 )
@@ -89,6 +92,186 @@ def first_non_empty(values: list[str]) -> str:
         if value.strip():
             return value
     return ""
+
+
+def route_request_intent(request: WorkflowRequest) -> IntentRoute:
+    """Route the request into chat, consult, or risk intent before retrieval."""
+    goal_text = " ".join([request.preset, request.goal]).lower()
+    if request.preset == WORKFLOW_RISK_REVIEW:
+        return IntentRoute(
+            intent="risk",
+            target_workflow=request.preset,
+            confidence=0.9,
+            rationale="risk keywords or risk workflow require transcript, policy, and memory evidence",
+            required_source_types=["meeting_transcript", "knowledge", "memory"],
+            retrieval_strategy="multi_hop",
+        )
+    if request.preset == WORKFLOW_CONTEXT_QA or contains_any(goal_text, consult_keywords()):
+        return IntentRoute(
+            intent="consult",
+            target_workflow=request.preset,
+            confidence=0.84,
+            rationale="question or policy language requires knowledge-grounded consultation",
+            required_source_types=["knowledge", "meeting_transcript", "memory"],
+            retrieval_strategy="graph_augmented",
+        )
+    if contains_any(goal_text, risk_keywords()):
+        return IntentRoute(
+            intent="risk",
+            target_workflow=request.preset,
+            confidence=0.86,
+            rationale="risk language requires transcript, policy, and memory evidence",
+            required_source_types=["meeting_transcript", "knowledge", "memory"],
+            retrieval_strategy="multi_hop",
+        )
+    return IntentRoute(
+        intent="chat",
+        target_workflow=request.preset,
+        confidence=0.78,
+        rationale="conversation task can start from scoped chat, note, and memory context",
+        required_source_types=["conversation", "message", "note", "followup", "memory"],
+        retrieval_strategy="single_pass",
+    )
+
+
+def route_text(request: WorkflowRequest) -> str:
+    """Build text used for deterministic routing."""
+    parts = [request.preset, request.goal]
+    parts.extend(message.body for message in request.messages)
+    parts.extend(note.body for note in request.notes)
+    parts.extend(segment.text for segment in request.meeting_transcripts)
+    parts.extend(chunk.snippet for chunk in request.context_chunks)
+    parts.extend(attachment.description for attachment in request.attachments)
+    parts.extend(attachment.extracted_text for attachment in request.attachments)
+    return " ".join(part for part in parts if part)
+
+
+def risk_keywords() -> tuple[str, ...]:
+    return (
+        "risk",
+        "blocker",
+        "approval",
+        "security",
+        "legal",
+        "privacy",
+        "deadline",
+        "budget",
+        "风险",
+        "阻塞",
+        "审批",
+        "安全",
+        "法务",
+        "隐私",
+        "延期",
+        "预算",
+        "升级",
+    )
+
+
+def consult_keywords() -> tuple[str, ...]:
+    return (
+        "what",
+        "how",
+        "why",
+        "policy",
+        "knowledge",
+        "checklist",
+        "require",
+        "requires",
+        "需要什么",
+        "如何",
+        "为什么",
+        "政策",
+        "知识库",
+        "规范",
+        "材料",
+        "清单",
+    )
+
+
+def build_graph_expansion(query: str, chunks: list[ContextChunk]) -> GraphExpansion:
+    """Infer lightweight evidence relationships for knowledge-graph enhanced RAG."""
+    query_terms = tokenize_route_terms(query)[:8]
+    edges: list[KnowledgeGraphEdge] = []
+    expanded: list[str] = []
+    for chunk in chunks:
+        edge = graph_edge_from_chunk(chunk, query_terms, len(edges) + 1)
+        if edge is None:
+            continue
+        edges.append(edge)
+        expanded.extend([edge.source, edge.relation, edge.target])
+        if len(edges) >= 8:
+            break
+    expanded_terms = [term for term in unique_strings(expanded) if term.lower() not in query_terms][:12]
+    return GraphExpansion(
+        enabled=bool(edges),
+        query_terms=query_terms,
+        expanded_terms=expanded_terms,
+        edges=edges,
+    )
+
+
+def graph_edge_from_chunk(
+    chunk: ContextChunk,
+    query_terms: list[str],
+    ordinal: int,
+) -> KnowledgeGraphEdge | None:
+    """Create one deterministic relationship from a chunk when it overlaps the query."""
+    text = f"{chunk.title} {chunk.source_title} {chunk.snippet}"
+    lowered = text.lower()
+    relation = infer_relation(text)
+    if not relation:
+        return None
+    has_overlap = not query_terms or any(term.lower() in lowered for term in query_terms)
+    if not has_overlap and chunk.source_type not in {"knowledge", "meeting_transcript", "memory"}:
+        return None
+    source = first_non_empty([chunk.title, chunk.source_title, chunk.source_type])
+    target = infer_target_phrase(text)
+    if not target:
+        return None
+    return KnowledgeGraphEdge(
+        edge_id=f"kg-{ordinal}-{chunk.chunk_id or chunk.source_type + '-' + chunk.source_id}",
+        source=source[:80],
+        relation=relation,
+        target=target[:120],
+        evidence_chunk_id=chunk_key(chunk),
+        confidence=0.72 if chunk.source_type == "knowledge" else 0.64,
+    )
+
+
+def infer_relation(text: str) -> str:
+    lowered = text.lower()
+    relation_rules = [
+        ("requires", ("requires", "require", "需要", "必须", "包含", "should")),
+        ("blocks", ("blocker", "block", "阻塞", "风险", "延期", "delay")),
+        ("owned_by", ("owner", "负责", "跟进", "action item", "owns")),
+        ("approves", ("approval", "approve", "审批", "signoff")),
+        ("mitigates", ("mitigation", "mitigate", "缓解", "回归", "rollback")),
+    ]
+    for relation, keywords in relation_rules:
+        if contains_any(lowered, keywords):
+            return relation
+    return ""
+
+
+def infer_target_phrase(text: str) -> str:
+    normalized = re.sub(r"\s+", " ", text.strip())
+    if not normalized:
+        return ""
+    clauses = re.split(r"[。；;.!?\n]", normalized)
+    return first_non_empty([clause.strip() for clause in clauses])
+
+
+def tokenize_route_terms(text: str) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for token in re.split(r"[^0-9A-Za-z\u4e00-\u9fff]+", text.lower()):
+        token = token.strip()
+        if len(token) < 2 or token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    return out
 
 
 def citations_from_chunks(chunks: list[ContextChunk]) -> list[Citation]:
@@ -176,6 +359,10 @@ def estimate_retrieval_confidence(request: WorkflowRequest, chunks: list[Context
         confidence -= 0.25
     if request.preset == WORKFLOW_MEETING_BRIEF and "meeting_transcript" not in source_types:
         confidence -= 0.2
+    if request.preset == WORKFLOW_RISK_REVIEW and source_types.intersection({"conversation", "message", "note"}):
+        confidence += 0.12
+    if any(chunk.source_type == "memory" for chunk in chunks):
+        confidence += 0.05
     return max(0.0, min(confidence, 1.0))
 
 
@@ -188,7 +375,13 @@ def evaluate_context_sufficiency(request: WorkflowRequest, pack: EvidencePack) -
         missing.append("meeting transcript citation")
     if request.preset == WORKFLOW_CONTEXT_QA and not pack.source_types:
         missing.append("knowledge or conversation evidence")
-    sufficient = not missing and pack.confidence >= 0.45
+    risk_sources = {"meeting_transcript", "conversation", "message", "note"}
+    if pack.route_intent == "risk" and not risk_sources.intersection(pack.source_types):
+        missing.append("risk evidence")
+    if pack.route_intent == "consult" and "knowledge" not in pack.source_types:
+        missing.append("knowledge citation")
+    threshold = 0.55 if pack.route_intent in {"risk", "consult"} else 0.45
+    sufficient = not missing and pack.confidence >= threshold
     reason = "context is sufficient for grounded synthesis" if sufficient else "context is insufficient for grounded synthesis"
     return ContextSufficiency(
         sufficient=sufficient,

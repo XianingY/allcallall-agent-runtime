@@ -3,7 +3,19 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from shared.models import ContextChunk, ContextSufficiency, EvidencePack, RetrievalAttempt
+from shared.models import (
+    AgentHarnessMetadata,
+    ContextChunk,
+    ContextSufficiency,
+    CriticResult,
+    EvidencePack,
+    GraphExpansion,
+    LoopBudget,
+    LoopTrace,
+    RetrievalAttempt,
+    RetrievalRoute,
+    RouteDecision,
+)
 
 
 class ToolPolicy(BaseModel):
@@ -42,6 +54,15 @@ class MeetingTranscriptSegment(BaseModel):
     speaker: str = ""
 
 
+class InputAttachment(BaseModel):
+    attachment_id: str = ""
+    modality: Literal["text", "image", "audio", "video", "file"] = "file"
+    mime_type: str = ""
+    uri: str = ""
+    description: str = ""
+    extracted_text: str = ""
+
+
 class WorkflowRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -57,6 +78,7 @@ class WorkflowRequest(BaseModel):
     notes: list[ConversationNote] = Field(default_factory=list)
     meeting_transcripts: list[MeetingTranscriptSegment] = Field(default_factory=list)
     context_chunks: list[ContextChunk] = Field(default_factory=list)
+    attachments: list[InputAttachment] = Field(default_factory=list)
     tool_policy: ToolPolicy = Field(default_factory=ToolPolicy)
     max_iterations: dict[str, int] = Field(default_factory=dict)
     agentic_rag: AgenticRAGConfig = Field(default_factory=AgenticRAGConfig)
@@ -88,6 +110,29 @@ class ToolProposal(BaseModel):
     reason: str = ""
     idempotency_key: str = ""
     approval_required: bool = True
+    execution_mode: Literal["proposal_only", "async_after_approval"] = "async_after_approval"
+    queue_name: str = "agent_writebacks"
+    priority: Literal["low", "normal", "high"] = "normal"
+    max_attempts: int = 3
+    rate_limit_key: str = ""
+    dead_letter_queue: str = "agent_writebacks_dead_letter"
+
+
+class MemoryReflection(BaseModel):
+    conversation_summary: str = ""
+    key_insights: list[str] = Field(default_factory=list)
+    risk_lessons: list[str] = Field(default_factory=list)
+    reinforcement_queries: list[str] = Field(default_factory=list)
+    memory_write_recommended: bool = False
+    reason: str = ""
+
+
+class RiskAssessment(BaseModel):
+    severity: Literal["none", "low", "medium", "high"] = "none"
+    categories: list[str] = Field(default_factory=list)
+    flags: list[str] = Field(default_factory=list)
+    requires_human_review: bool = False
+    guardrails: list[str] = Field(default_factory=list)
 
 
 class WorkflowResponse(BaseModel):
@@ -105,6 +150,16 @@ class WorkflowResponse(BaseModel):
     proposed_tool_calls: list[ToolProposal] = Field(default_factory=list)
     evidence_pack: EvidencePack = Field(default_factory=EvidencePack)
     context_sufficiency: ContextSufficiency = Field(default_factory=ContextSufficiency)
+    intent_route: RetrievalRoute = Field(default_factory=RetrievalRoute)
+    route_decision: RouteDecision = Field(default_factory=RouteDecision)
+    critic_result: CriticResult = Field(default_factory=CriticResult)
+    harness: AgentHarnessMetadata = Field(default_factory=AgentHarnessMetadata)
+    loop_traces: list[LoopTrace] = Field(default_factory=list)
+    stop_reason: str = "completed"
+    budget: LoopBudget = Field(default_factory=LoopBudget)
+    graph_expansion: GraphExpansion = Field(default_factory=GraphExpansion)
+    memory_reflection: MemoryReflection = Field(default_factory=MemoryReflection)
+    risk_assessment: RiskAssessment = Field(default_factory=RiskAssessment)
     error: str = ""
 
 
@@ -151,6 +206,8 @@ class AgenticRetrievalRequest(RetrievalQueryRequest):
 
 class AgenticRetrievalResponse(BaseModel):
     runtime: str = "python_rag"
+    route: RetrievalRoute = Field(default_factory=RetrievalRoute)
+    graph_expansion: GraphExpansion = Field(default_factory=GraphExpansion)
     attempts: list[RetrievalAttempt] = Field(default_factory=list)
     evidence_pack: EvidencePack = Field(default_factory=EvidencePack)
     context_sufficiency: ContextSufficiency = Field(default_factory=ContextSufficiency)
@@ -167,4 +224,3 @@ class GroundingCheckResponse(BaseModel):
     unsupported_claims: list[str] = Field(default_factory=list)
     coverage: float = 0
     trace: dict[str, Any] = Field(default_factory=dict)
-

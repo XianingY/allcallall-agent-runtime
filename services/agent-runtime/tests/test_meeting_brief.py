@@ -6,7 +6,14 @@ from allcallall_agent_runtime.eval_runner import run_eval
 from allcallall_agent_runtime.main import run_meeting_brief, run_react_agent, run_workflow
 from allcallall_agent_runtime.grounding import check_grounding
 from allcallall_agent_runtime.llamaindex_adapter import run_fixture_retrieval
-from allcallall_agent_runtime.models import Citation, ContextChunk, MeetingBriefRequest, MeetingTranscriptSegment, WorkflowRequest
+from allcallall_agent_runtime.models import (
+    AgenticRAGConfig,
+    Citation,
+    ContextChunk,
+    MeetingBriefRequest,
+    MeetingTranscriptSegment,
+    WorkflowRequest,
+)
 from allcallall_agent_runtime.prompts import prompt_version_for, structured_prompt_for
 from allcallall_agent_runtime.providers import ProviderError, create_provider
 from allcallall_agent_runtime.retrieval import rerank_context_chunks
@@ -57,9 +64,26 @@ def test_meeting_brief_returns_trace_citations_and_write_proposals() -> None:
     assert response.citations[0].transcript_segment_id == 10
     assert response.proposed_tool_calls
     assert response.prompt_version == "meeting_brief_v2"
+    assert response.harness.name == "allcallall_v1"
+    assert response.harness.prompt_version == "meeting_brief_v2"
+    assert "audio_transcript" in response.harness.input_modalities
+    assert response.route_decision.route == "MEETING_RECAP"
+    assert response.loop_traces
+    assert {item.role for item in response.loop_traces} >= {"searcher", "risk_analyst"}
+    assert response.budget.used_steps <= response.budget.max_steps
+    assert response.budget.write_tool_proposals == len(response.proposed_tool_calls)
+    assert response.critic_result.budget_respected is True
+    assert response.stop_reason in {"approval_required", "max_iterations", "completed"}
     assert response.grounding_check_result
+    assert response.intent_route.intent == "risk"
+    assert response.memory_reflection.memory_write_recommended is True
+    assert response.risk_assessment.requires_human_review is True
     assert all(item.approval_required for item in response.proposed_tool_calls)
+    assert all(item.execution_mode == "async_after_approval" for item in response.proposed_tool_calls)
+    assert all(item.dead_letter_queue for item in response.proposed_tool_calls)
     assert any(item.node == "approval_gate" for item in response.trace_events)
+    assert any(item.node == "memory_agent" for item in response.trace_events)
+    assert any(item.event == "memory.reflect" for item in response.trace_events)
     search_events = [
         item
         for item in response.trace_events
@@ -142,6 +166,8 @@ def test_runtime_supports_risk_review_follow_up_and_context_qa() -> None:
     risk = run_workflow(base)
     assert risk.status == "requires_action"
     assert "Risk Review" in risk.summary
+    assert risk.intent_route.intent == "risk"
+    assert risk.risk_assessment.severity in {"medium", "high"}
     assert "write_conversation_message" in [item.tool_name for item in risk.proposed_tool_calls]
 
     follow_up = run_workflow(base.model_copy(update={"preset": "follow_up_planner", "goal": "请生成跟进任务。"}))
@@ -150,7 +176,50 @@ def test_runtime_supports_risk_review_follow_up_and_context_qa() -> None:
 
     qa = run_workflow(base.model_copy(update={"preset": "context_qa", "goal": "安全审批是什么？"}))
     assert qa.status == "ready"
+    assert qa.intent_route.intent == "consult"
     assert not qa.proposed_tool_calls
+
+
+def test_agentic_rag_plan_records_graph_expansion_and_queue_metadata() -> None:
+    response = run_workflow(
+        WorkflowRequest(
+            organization_id=1,
+            user_id=7,
+            conversation_id=42,
+            workflow_run_id=104,
+            preset="meeting_brief",
+            goal="请结合上线安全知识库和会议转写生成复盘。",
+            context_chunks=[
+                ContextChunk(
+                    chunk_id="mt-graph",
+                    source_type="meeting_transcript",
+                    source_id="1",
+                    title="Launch Meeting",
+                    snippet="会议确认上线前需要 QA owner 完成安全审批和回归测试。",
+                    score=10,
+                    retrieval_mode="rules",
+                ),
+                ContextChunk(
+                    chunk_id="kb-graph",
+                    source_type="knowledge",
+                    source_id="2",
+                    title="Launch Checklist",
+                    snippet="上线安全材料需要包含安全审批记录、回归结论和回滚计划。",
+                    score=9,
+                    retrieval_mode="rules",
+                ),
+            ],
+            agentic_rag=AgenticRAGConfig(enabled=True, max_steps=3, min_confidence=0.7),
+        )
+    )
+
+    assert response.status == "requires_action"
+    assert response.intent_route.intent == "consult"
+    assert response.graph_expansion.enabled is True
+    assert response.retrieval_plan.steps[0].expanded_terms
+    assert response.retrieval_attempts[0].strategy in {"graph_augmented", "adaptive"}
+    assert response.evidence_pack.graph_edges
+    assert any(item.queue_name == "agent_memory" for item in response.proposed_tool_calls)
 
 
 def test_react_agent_runtime_uses_python_langgraph_schema() -> None:

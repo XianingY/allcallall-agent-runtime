@@ -9,8 +9,12 @@ from .models import (
     ContextChunk,
     ContextSufficiency,
     EvidencePack,
+    GraphExpansion,
+    IntentRoute,
+    MemoryReflection,
     RetrievalPlan,
     RetrievalAttempt,
+    RiskAssessment,
     RoleResult,
     ToolProposal,
     TraceEvent,
@@ -27,6 +31,8 @@ class GraphState(TypedDict, total=False):
     trace_events: list[TraceEvent]
     role_results: list[RoleResult]
     agentic_rag_enabled: bool
+    intent_route: IntentRoute
+    graph_expansion: GraphExpansion
     retrieval_plan: RetrievalPlan
     retrieval_attempts: list[RetrievalAttempt]
     agentic_context_chunks: list[ContextChunk]
@@ -35,8 +41,11 @@ class GraphState(TypedDict, total=False):
     evidence_pack: EvidencePack
     context_sufficiency: ContextSufficiency
     searcher: RoleResult
+    memory_agent: RoleResult
     summarizer: RoleResult
     risk_analyst: RoleResult
+    risk_assessment: RiskAssessment
+    memory_reflection: MemoryReflection
     summary: str
     action_items: list[str]
     next_step: str

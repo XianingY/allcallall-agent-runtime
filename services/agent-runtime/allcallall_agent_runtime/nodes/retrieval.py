@@ -6,6 +6,7 @@ from __future__ import annotations
 from ..models import (
     ContextChunk,
     EvidencePack,
+    GraphExpansion,
     RetrievalAttempt,
     RetrievalPlan,
     TraceEvent,
@@ -60,6 +61,9 @@ def retrieval_loop(state: GraphState) -> GraphState:
             "query": step.query,
             "limit": 6,
             "source_type": step.source_scope,
+            "strategy": step.strategy,
+            "expanded_terms": step.expanded_terms,
+            "route_intent": plan.intent_route.intent,
         }
         trace.append(
             TraceEvent(
@@ -147,6 +151,9 @@ def retrieval_loop(state: GraphState) -> GraphState:
             observation=summarize_observation(step.tool_name, selected) + observation_suffix,
             refined=step.step > 1,
             confidence=confidence,
+            strategy=step.strategy,
+            expanded_terms=step.expanded_terms,
+            graph_edge_ids=[edge.edge_id for edge in plan.graph_expansion.edges],
         )
         attempts.append(attempt)
         trace.append(
@@ -162,6 +169,9 @@ def retrieval_loop(state: GraphState) -> GraphState:
                     "hit_count": attempt.hit_count,
                     "source_types": attempt.source_types,
                     "confidence": attempt.confidence,
+                    "strategy": attempt.strategy,
+                    "expanded_terms": attempt.expanded_terms,
+                    "graph_edge_ids": attempt.graph_edge_ids,
                 },
             )
         )
@@ -230,6 +240,12 @@ def build_evidence_pack(state: GraphState) -> GraphState:
     citations = citations_from_chunks(chunks)
     snippets = top_snippets(chunks, 6)
     confidence = estimate_retrieval_confidence(request, chunks)
+    plan = state.get("retrieval_plan", RetrievalPlan())
+    graph = state.get("graph_expansion", GraphExpansion())
+    coverage = len({chunk.source_type for chunk in chunks}) / max(
+        len(plan.intent_route.required_source_types),
+        1,
+    )
     pack = EvidencePack(
         selected_chunk_ids=[chunk_key(chunk) for chunk in chunks],
         rejected_count=max(0, len(state.get("retrieved_context_chunks", [])) - len(chunks)),
@@ -237,6 +253,9 @@ def build_evidence_pack(state: GraphState) -> GraphState:
         source_types=unique_strings([chunk.source_type for chunk in chunks]),
         snippets=snippets,
         citations=citations,
+        route_intent=plan.intent_route.intent,
+        coverage=min(coverage, 1.0),
+        graph_edges=graph.edges,
     )
     trace = state.get("trace_events", [])
     trace.append(TraceEvent(event="graph.node.started", node="evidence_pack", status="running"))

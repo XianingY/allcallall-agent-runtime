@@ -4,6 +4,14 @@ Python FastAPI + LangGraph runtime for AllCallAll Agent workflows.
 
 The Go backend remains the source of truth for users, organizations, conversations, transcript data, tool permissions, approvals, audit logs, and write execution. This service owns AI orchestration: workflow registry, LangGraph DAG execution, bounded ReAct role loops, LLM/provider adapters, structured traces, citations, write-tool proposals, and Python-side task eval.
 
+The runtime now behaves as an Agent Runtime Harness:
+
+- Dynamic routing classifies each run as `chat`, `consult`, or `risk`.
+- Retrieval planning can use adaptive multi-hop RAG and knowledge-graph expanded terms.
+- Multi-agent roles include Searcher, MemoryAgent, Summarizer, and RiskGuardian-style assessment.
+- Reflection memory is generated after grounding, then persisted only through approval-gated write proposals.
+- Tool proposals carry async queue, retry, rate-limit, idempotency, and dead-letter metadata for Go-side execution.
+
 Supported presets:
 
 - `meeting_brief`
@@ -55,3 +63,5 @@ Outputs:
 - `evals/reports/python-agent-eval.md`
 
 The eval fixtures are deterministic regression cases for task completion, citation grounding, tool intent, approval safety, Agentic RAG refinement, citation coverage, iteration caps, and unsupported-claim guarding. They are not open-domain model-quality claims.
+
+Current deterministic fixture report covers 9 agent cases with route-aware retrieval, approval safety, grounding, and memory/tool proposal behavior.

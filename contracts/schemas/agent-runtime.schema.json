@@ -244,6 +244,50 @@
         "title": "ConversationNote",
         "type": "object"
       },
+      "InputAttachment": {
+        "description": "Optional non-text input metadata preprocessed by the Go backend.",
+        "properties": {
+          "attachment_id": {
+            "default": "",
+            "title": "Attachment Id",
+            "type": "string"
+          },
+          "modality": {
+            "default": "file",
+            "enum": [
+              "text",
+              "image",
+              "audio",
+              "video",
+              "file"
+            ],
+            "title": "Modality",
+            "type": "string"
+          },
+          "mime_type": {
+            "default": "",
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "uri": {
+            "default": "",
+            "title": "Uri",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "extracted_text": {
+            "default": "",
+            "title": "Extracted Text",
+            "type": "string"
+          }
+        },
+        "title": "InputAttachment",
+        "type": "object"
+      },
       "MeetingTranscriptSegment": {
         "properties": {
           "id": {
@@ -371,6 +415,13 @@
         "title": "Context Chunks",
         "type": "array"
       },
+      "attachments": {
+        "items": {
+          "$ref": "#/$defs/InputAttachment"
+        },
+        "title": "Attachments",
+        "type": "array"
+      },
       "tool_policy": {
         "$ref": "#/$defs/ToolPolicy"
       },
@@ -397,6 +448,39 @@
   },
   "MeetingBriefResponse": {
     "$defs": {
+      "AgentHarnessMetadata": {
+        "properties": {
+          "name": {
+            "default": "allcallall_v1",
+            "title": "Name",
+            "type": "string"
+          },
+          "graph_name": {
+            "default": "workflow_dag_with_bounded_loops",
+            "title": "Graph Name",
+            "type": "string"
+          },
+          "runtime": {
+            "default": "python_langgraph",
+            "title": "Runtime",
+            "type": "string"
+          },
+          "prompt_version": {
+            "default": "",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "input_modalities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Input Modalities",
+            "type": "array"
+          }
+        },
+        "title": "AgentHarnessMetadata",
+        "type": "object"
+      },
       "Citation": {
         "properties": {
           "chunk_id": {
@@ -548,6 +632,49 @@
         "title": "ContextSufficiency",
         "type": "object"
       },
+      "CriticResult": {
+        "properties": {
+          "passed": {
+            "default": true,
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "citation_coverage": {
+            "default": 0,
+            "title": "Citation Coverage",
+            "type": "number"
+          },
+          "budget_respected": {
+            "default": true,
+            "title": "Budget Respected",
+            "type": "boolean"
+          },
+          "write_proposal_safe": {
+            "default": true,
+            "title": "Write Proposal Safe",
+            "type": "boolean"
+          },
+          "grounding_passed": {
+            "default": true,
+            "title": "Grounding Passed",
+            "type": "boolean"
+          },
+          "context_sufficient": {
+            "default": true,
+            "title": "Context Sufficient",
+            "type": "boolean"
+          }
+        },
+        "title": "CriticResult",
+        "type": "object"
+      },
       "EvidencePack": {
         "properties": {
           "selected_chunk_ids": {
@@ -587,9 +714,360 @@
             },
             "title": "Citations",
             "type": "array"
+          },
+          "route_intent": {
+            "default": "",
+            "title": "Route Intent",
+            "type": "string"
+          },
+          "coverage": {
+            "default": 0,
+            "title": "Coverage",
+            "type": "number"
+          },
+          "graph_edges": {
+            "items": {
+              "$ref": "#/$defs/KnowledgeGraphEdge"
+            },
+            "title": "Graph Edges",
+            "type": "array"
           }
         },
         "title": "EvidencePack",
+        "type": "object"
+      },
+      "GraphExpansion": {
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "query_terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Query Terms",
+            "type": "array"
+          },
+          "expanded_terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expanded Terms",
+            "type": "array"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/$defs/KnowledgeGraphEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          }
+        },
+        "title": "GraphExpansion",
+        "type": "object"
+      },
+      "IntentRoute": {
+        "properties": {
+          "intent": {
+            "default": "chat",
+            "enum": [
+              "chat",
+              "consult",
+              "risk"
+            ],
+            "title": "Intent",
+            "type": "string"
+          },
+          "target_workflow": {
+            "default": "",
+            "title": "Target Workflow",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "required_source_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Source Types",
+            "type": "array"
+          },
+          "retrieval_strategy": {
+            "default": "adaptive",
+            "enum": [
+              "none",
+              "single_pass",
+              "adaptive",
+              "graph_augmented",
+              "multi_hop"
+            ],
+            "title": "Retrieval Strategy",
+            "type": "string"
+          }
+        },
+        "title": "IntentRoute",
+        "type": "object"
+      },
+      "KnowledgeGraphEdge": {
+        "properties": {
+          "edge_id": {
+            "title": "Edge Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "evidence_chunk_id": {
+            "default": "",
+            "title": "Evidence Chunk Id",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "edge_id",
+          "source",
+          "relation",
+          "target"
+        ],
+        "title": "KnowledgeGraphEdge",
+        "type": "object"
+      },
+      "LoopBudget": {
+        "properties": {
+          "max_steps": {
+            "default": 0,
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "used_steps": {
+            "default": 0,
+            "title": "Used Steps",
+            "type": "integer"
+          },
+          "read_tool_calls": {
+            "default": 0,
+            "title": "Read Tool Calls",
+            "type": "integer"
+          },
+          "write_tool_proposals": {
+            "default": 0,
+            "title": "Write Tool Proposals",
+            "type": "integer"
+          }
+        },
+        "title": "LoopBudget",
+        "type": "object"
+      },
+      "LoopSpec": {
+        "properties": {
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "objective": {
+            "default": "",
+            "title": "Objective",
+            "type": "string"
+          },
+          "max_steps": {
+            "default": 0,
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "allowed_tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Tools",
+            "type": "array"
+          },
+          "stop_conditions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stop Conditions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "LoopSpec",
+        "type": "object"
+      },
+      "LoopStep": {
+        "properties": {
+          "iteration": {
+            "default": 0,
+            "title": "Iteration",
+            "type": "integer"
+          },
+          "role": {
+            "default": "",
+            "title": "Role",
+            "type": "string"
+          },
+          "thought_summary": {
+            "default": "",
+            "title": "Thought Summary",
+            "type": "string"
+          },
+          "selected_skill": {
+            "default": "",
+            "title": "Selected Skill",
+            "type": "string"
+          },
+          "input_schema": {
+            "additionalProperties": true,
+            "title": "Input Schema",
+            "type": "object"
+          },
+          "observation": {
+            "default": "",
+            "title": "Observation",
+            "type": "string"
+          },
+          "citation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Citation Ids",
+            "type": "array"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "stop_reason": {
+            "default": "completed",
+            "enum": [
+              "completed",
+              "confidence_reached",
+              "max_iterations",
+              "insufficient_context",
+              "tool_error",
+              "no_tool_needed"
+            ],
+            "title": "Stop Reason",
+            "type": "string"
+          },
+          "budget_used": {
+            "$ref": "#/$defs/LoopBudget"
+          }
+        },
+        "title": "LoopStep",
+        "type": "object"
+      },
+      "LoopTrace": {
+        "properties": {
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/$defs/LoopSpec"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/$defs/LoopStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "stop_reason": {
+            "default": "completed",
+            "enum": [
+              "completed",
+              "confidence_reached",
+              "max_iterations",
+              "insufficient_context",
+              "tool_error",
+              "no_tool_needed"
+            ],
+            "title": "Stop Reason",
+            "type": "string"
+          },
+          "completed": {
+            "default": true,
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "budget": {
+            "$ref": "#/$defs/LoopBudget"
+          }
+        },
+        "required": [
+          "role",
+          "spec"
+        ],
+        "title": "LoopTrace",
+        "type": "object"
+      },
+      "MemoryReflection": {
+        "properties": {
+          "conversation_summary": {
+            "default": "",
+            "title": "Conversation Summary",
+            "type": "string"
+          },
+          "key_insights": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Key Insights",
+            "type": "array"
+          },
+          "risk_lessons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Risk Lessons",
+            "type": "array"
+          },
+          "reinforcement_queries": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reinforcement Queries",
+            "type": "array"
+          },
+          "memory_write_recommended": {
+            "default": false,
+            "title": "Memory Write Recommended",
+            "type": "boolean"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "MemoryReflection",
         "type": "object"
       },
       "RetrievalAttempt": {
@@ -644,6 +1122,25 @@
             "default": 0,
             "title": "Confidence",
             "type": "number"
+          },
+          "strategy": {
+            "default": "",
+            "title": "Strategy",
+            "type": "string"
+          },
+          "expanded_terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expanded Terms",
+            "type": "array"
+          },
+          "graph_edge_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Graph Edge Ids",
+            "type": "array"
           }
         },
         "required": [
@@ -677,6 +1174,12 @@
             },
             "title": "Steps",
             "type": "array"
+          },
+          "intent_route": {
+            "$ref": "#/$defs/IntentRoute"
+          },
+          "graph_expansion": {
+            "$ref": "#/$defs/GraphExpansion"
           }
         },
         "title": "RetrievalPlan",
@@ -706,6 +1209,18 @@
             "default": "",
             "title": "Rationale",
             "type": "string"
+          },
+          "strategy": {
+            "default": "adaptive",
+            "title": "Strategy",
+            "type": "string"
+          },
+          "expanded_terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expanded Terms",
+            "type": "array"
           }
         },
         "required": [
@@ -713,6 +1228,49 @@
           "query"
         ],
         "title": "RetrievalPlanStep",
+        "type": "object"
+      },
+      "RiskAssessment": {
+        "properties": {
+          "severity": {
+            "default": "none",
+            "enum": [
+              "none",
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "flags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "requires_human_review": {
+            "default": false,
+            "title": "Requires Human Review",
+            "type": "boolean"
+          },
+          "guardrails": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Guardrails",
+            "type": "array"
+          }
+        },
+        "title": "RiskAssessment",
         "type": "object"
       },
       "RoleResult": {
@@ -773,6 +1331,49 @@
         "title": "RoleResult",
         "type": "object"
       },
+      "RouteDecision": {
+        "properties": {
+          "route": {
+            "default": "CHAT",
+            "enum": [
+              "CHAT",
+              "CONSULT",
+              "RISK",
+              "FOLLOW_UP",
+              "MEETING_RECAP"
+            ],
+            "title": "Route",
+            "type": "string"
+          },
+          "intent": {
+            "default": "",
+            "title": "Intent",
+            "type": "string"
+          },
+          "target_workflow": {
+            "default": "",
+            "title": "Target Workflow",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "retrieval_strategy": {
+            "default": "",
+            "title": "Retrieval Strategy",
+            "type": "string"
+          }
+        },
+        "title": "RouteDecision",
+        "type": "object"
+      },
       "ToolProposal": {
         "properties": {
           "tool_name": {
@@ -798,6 +1399,45 @@
             "default": true,
             "title": "Approval Required",
             "type": "boolean"
+          },
+          "execution_mode": {
+            "default": "async_after_approval",
+            "enum": [
+              "proposal_only",
+              "async_after_approval"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "queue_name": {
+            "default": "agent_writebacks",
+            "title": "Queue Name",
+            "type": "string"
+          },
+          "priority": {
+            "default": "normal",
+            "enum": [
+              "low",
+              "normal",
+              "high"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
+          "max_attempts": {
+            "default": 3,
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "rate_limit_key": {
+            "default": "",
+            "title": "Rate Limit Key",
+            "type": "string"
+          },
+          "dead_letter_queue": {
+            "default": "agent_writebacks_dead_letter",
+            "title": "Dead Letter Queue",
+            "type": "string"
           }
         },
         "required": [
@@ -971,6 +1611,42 @@
       },
       "context_sufficiency": {
         "$ref": "#/$defs/ContextSufficiency"
+      },
+      "intent_route": {
+        "$ref": "#/$defs/IntentRoute"
+      },
+      "route_decision": {
+        "$ref": "#/$defs/RouteDecision"
+      },
+      "critic_result": {
+        "$ref": "#/$defs/CriticResult"
+      },
+      "harness": {
+        "$ref": "#/$defs/AgentHarnessMetadata"
+      },
+      "loop_traces": {
+        "items": {
+          "$ref": "#/$defs/LoopTrace"
+        },
+        "title": "Loop Traces",
+        "type": "array"
+      },
+      "stop_reason": {
+        "default": "completed",
+        "title": "Stop Reason",
+        "type": "string"
+      },
+      "budget": {
+        "$ref": "#/$defs/LoopBudget"
+      },
+      "graph_expansion": {
+        "$ref": "#/$defs/GraphExpansion"
+      },
+      "memory_reflection": {
+        "$ref": "#/$defs/MemoryReflection"
+      },
+      "risk_assessment": {
+        "$ref": "#/$defs/RiskAssessment"
       },
       "error": {
         "default": "",
@@ -1194,6 +1870,45 @@
         "default": true,
         "title": "Approval Required",
         "type": "boolean"
+      },
+      "execution_mode": {
+        "default": "async_after_approval",
+        "enum": [
+          "proposal_only",
+          "async_after_approval"
+        ],
+        "title": "Execution Mode",
+        "type": "string"
+      },
+      "queue_name": {
+        "default": "agent_writebacks",
+        "title": "Queue Name",
+        "type": "string"
+      },
+      "priority": {
+        "default": "normal",
+        "enum": [
+          "low",
+          "normal",
+          "high"
+        ],
+        "title": "Priority",
+        "type": "string"
+      },
+      "max_attempts": {
+        "default": 3,
+        "title": "Max Attempts",
+        "type": "integer"
+      },
+      "rate_limit_key": {
+        "default": "",
+        "title": "Rate Limit Key",
+        "type": "string"
+      },
+      "dead_letter_queue": {
+        "default": "agent_writebacks_dead_letter",
+        "title": "Dead Letter Queue",
+        "type": "string"
       }
     },
     "required": [
@@ -1326,6 +2041,44 @@
         ],
         "title": "Citation",
         "type": "object"
+      },
+      "KnowledgeGraphEdge": {
+        "properties": {
+          "edge_id": {
+            "title": "Edge Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "evidence_chunk_id": {
+            "default": "",
+            "title": "Evidence Chunk Id",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "edge_id",
+          "source",
+          "relation",
+          "target"
+        ],
+        "title": "KnowledgeGraphEdge",
+        "type": "object"
       }
     },
     "properties": {
@@ -1366,6 +2119,23 @@
         },
         "title": "Citations",
         "type": "array"
+      },
+      "route_intent": {
+        "default": "",
+        "title": "Route Intent",
+        "type": "string"
+      },
+      "coverage": {
+        "default": 0,
+        "title": "Coverage",
+        "type": "number"
+      },
+      "graph_edges": {
+        "items": {
+          "$ref": "#/$defs/KnowledgeGraphEdge"
+        },
+        "title": "Graph Edges",
+        "type": "array"
       }
     },
     "title": "EvidencePack",
@@ -1397,6 +2167,661 @@
       }
     },
     "title": "ContextSufficiency",
+    "type": "object"
+  },
+  "IntentRoute": {
+    "properties": {
+      "intent": {
+        "default": "chat",
+        "enum": [
+          "chat",
+          "consult",
+          "risk"
+        ],
+        "title": "Intent",
+        "type": "string"
+      },
+      "target_workflow": {
+        "default": "",
+        "title": "Target Workflow",
+        "type": "string"
+      },
+      "confidence": {
+        "default": 0,
+        "title": "Confidence",
+        "type": "number"
+      },
+      "rationale": {
+        "default": "",
+        "title": "Rationale",
+        "type": "string"
+      },
+      "required_source_types": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Required Source Types",
+        "type": "array"
+      },
+      "retrieval_strategy": {
+        "default": "adaptive",
+        "enum": [
+          "none",
+          "single_pass",
+          "adaptive",
+          "graph_augmented",
+          "multi_hop"
+        ],
+        "title": "Retrieval Strategy",
+        "type": "string"
+      }
+    },
+    "title": "IntentRoute",
+    "type": "object"
+  },
+  "RouteDecision": {
+    "properties": {
+      "route": {
+        "default": "CHAT",
+        "enum": [
+          "CHAT",
+          "CONSULT",
+          "RISK",
+          "FOLLOW_UP",
+          "MEETING_RECAP"
+        ],
+        "title": "Route",
+        "type": "string"
+      },
+      "intent": {
+        "default": "",
+        "title": "Intent",
+        "type": "string"
+      },
+      "target_workflow": {
+        "default": "",
+        "title": "Target Workflow",
+        "type": "string"
+      },
+      "confidence": {
+        "default": 0,
+        "title": "Confidence",
+        "type": "number"
+      },
+      "rationale": {
+        "default": "",
+        "title": "Rationale",
+        "type": "string"
+      },
+      "retrieval_strategy": {
+        "default": "",
+        "title": "Retrieval Strategy",
+        "type": "string"
+      }
+    },
+    "title": "RouteDecision",
+    "type": "object"
+  },
+  "CriticResult": {
+    "properties": {
+      "passed": {
+        "default": true,
+        "title": "Passed",
+        "type": "boolean"
+      },
+      "issues": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Issues",
+        "type": "array"
+      },
+      "citation_coverage": {
+        "default": 0,
+        "title": "Citation Coverage",
+        "type": "number"
+      },
+      "budget_respected": {
+        "default": true,
+        "title": "Budget Respected",
+        "type": "boolean"
+      },
+      "write_proposal_safe": {
+        "default": true,
+        "title": "Write Proposal Safe",
+        "type": "boolean"
+      },
+      "grounding_passed": {
+        "default": true,
+        "title": "Grounding Passed",
+        "type": "boolean"
+      },
+      "context_sufficient": {
+        "default": true,
+        "title": "Context Sufficient",
+        "type": "boolean"
+      }
+    },
+    "title": "CriticResult",
+    "type": "object"
+  },
+  "AgentHarnessMetadata": {
+    "properties": {
+      "name": {
+        "default": "allcallall_v1",
+        "title": "Name",
+        "type": "string"
+      },
+      "graph_name": {
+        "default": "workflow_dag_with_bounded_loops",
+        "title": "Graph Name",
+        "type": "string"
+      },
+      "runtime": {
+        "default": "python_langgraph",
+        "title": "Runtime",
+        "type": "string"
+      },
+      "prompt_version": {
+        "default": "",
+        "title": "Prompt Version",
+        "type": "string"
+      },
+      "input_modalities": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Input Modalities",
+        "type": "array"
+      }
+    },
+    "title": "AgentHarnessMetadata",
+    "type": "object"
+  },
+  "LoopBudget": {
+    "properties": {
+      "max_steps": {
+        "default": 0,
+        "title": "Max Steps",
+        "type": "integer"
+      },
+      "used_steps": {
+        "default": 0,
+        "title": "Used Steps",
+        "type": "integer"
+      },
+      "read_tool_calls": {
+        "default": 0,
+        "title": "Read Tool Calls",
+        "type": "integer"
+      },
+      "write_tool_proposals": {
+        "default": 0,
+        "title": "Write Tool Proposals",
+        "type": "integer"
+      }
+    },
+    "title": "LoopBudget",
+    "type": "object"
+  },
+  "LoopSpec": {
+    "properties": {
+      "role": {
+        "title": "Role",
+        "type": "string"
+      },
+      "objective": {
+        "default": "",
+        "title": "Objective",
+        "type": "string"
+      },
+      "max_steps": {
+        "default": 0,
+        "title": "Max Steps",
+        "type": "integer"
+      },
+      "allowed_tools": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Allowed Tools",
+        "type": "array"
+      },
+      "stop_conditions": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Stop Conditions",
+        "type": "array"
+      }
+    },
+    "required": [
+      "role"
+    ],
+    "title": "LoopSpec",
+    "type": "object"
+  },
+  "LoopStep": {
+    "$defs": {
+      "LoopBudget": {
+        "properties": {
+          "max_steps": {
+            "default": 0,
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "used_steps": {
+            "default": 0,
+            "title": "Used Steps",
+            "type": "integer"
+          },
+          "read_tool_calls": {
+            "default": 0,
+            "title": "Read Tool Calls",
+            "type": "integer"
+          },
+          "write_tool_proposals": {
+            "default": 0,
+            "title": "Write Tool Proposals",
+            "type": "integer"
+          }
+        },
+        "title": "LoopBudget",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "iteration": {
+        "default": 0,
+        "title": "Iteration",
+        "type": "integer"
+      },
+      "role": {
+        "default": "",
+        "title": "Role",
+        "type": "string"
+      },
+      "thought_summary": {
+        "default": "",
+        "title": "Thought Summary",
+        "type": "string"
+      },
+      "selected_skill": {
+        "default": "",
+        "title": "Selected Skill",
+        "type": "string"
+      },
+      "input_schema": {
+        "additionalProperties": true,
+        "title": "Input Schema",
+        "type": "object"
+      },
+      "observation": {
+        "default": "",
+        "title": "Observation",
+        "type": "string"
+      },
+      "citation_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Citation Ids",
+        "type": "array"
+      },
+      "confidence": {
+        "default": 0,
+        "title": "Confidence",
+        "type": "number"
+      },
+      "stop_reason": {
+        "default": "completed",
+        "enum": [
+          "completed",
+          "confidence_reached",
+          "max_iterations",
+          "insufficient_context",
+          "tool_error",
+          "no_tool_needed"
+        ],
+        "title": "Stop Reason",
+        "type": "string"
+      },
+      "budget_used": {
+        "$ref": "#/$defs/LoopBudget"
+      }
+    },
+    "title": "LoopStep",
+    "type": "object"
+  },
+  "LoopTrace": {
+    "$defs": {
+      "LoopBudget": {
+        "properties": {
+          "max_steps": {
+            "default": 0,
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "used_steps": {
+            "default": 0,
+            "title": "Used Steps",
+            "type": "integer"
+          },
+          "read_tool_calls": {
+            "default": 0,
+            "title": "Read Tool Calls",
+            "type": "integer"
+          },
+          "write_tool_proposals": {
+            "default": 0,
+            "title": "Write Tool Proposals",
+            "type": "integer"
+          }
+        },
+        "title": "LoopBudget",
+        "type": "object"
+      },
+      "LoopSpec": {
+        "properties": {
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "objective": {
+            "default": "",
+            "title": "Objective",
+            "type": "string"
+          },
+          "max_steps": {
+            "default": 0,
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "allowed_tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Tools",
+            "type": "array"
+          },
+          "stop_conditions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stop Conditions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "LoopSpec",
+        "type": "object"
+      },
+      "LoopStep": {
+        "properties": {
+          "iteration": {
+            "default": 0,
+            "title": "Iteration",
+            "type": "integer"
+          },
+          "role": {
+            "default": "",
+            "title": "Role",
+            "type": "string"
+          },
+          "thought_summary": {
+            "default": "",
+            "title": "Thought Summary",
+            "type": "string"
+          },
+          "selected_skill": {
+            "default": "",
+            "title": "Selected Skill",
+            "type": "string"
+          },
+          "input_schema": {
+            "additionalProperties": true,
+            "title": "Input Schema",
+            "type": "object"
+          },
+          "observation": {
+            "default": "",
+            "title": "Observation",
+            "type": "string"
+          },
+          "citation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Citation Ids",
+            "type": "array"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "stop_reason": {
+            "default": "completed",
+            "enum": [
+              "completed",
+              "confidence_reached",
+              "max_iterations",
+              "insufficient_context",
+              "tool_error",
+              "no_tool_needed"
+            ],
+            "title": "Stop Reason",
+            "type": "string"
+          },
+          "budget_used": {
+            "$ref": "#/$defs/LoopBudget"
+          }
+        },
+        "title": "LoopStep",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "role": {
+        "title": "Role",
+        "type": "string"
+      },
+      "spec": {
+        "$ref": "#/$defs/LoopSpec"
+      },
+      "steps": {
+        "items": {
+          "$ref": "#/$defs/LoopStep"
+        },
+        "title": "Steps",
+        "type": "array"
+      },
+      "stop_reason": {
+        "default": "completed",
+        "enum": [
+          "completed",
+          "confidence_reached",
+          "max_iterations",
+          "insufficient_context",
+          "tool_error",
+          "no_tool_needed"
+        ],
+        "title": "Stop Reason",
+        "type": "string"
+      },
+      "completed": {
+        "default": true,
+        "title": "Completed",
+        "type": "boolean"
+      },
+      "budget": {
+        "$ref": "#/$defs/LoopBudget"
+      }
+    },
+    "required": [
+      "role",
+      "spec"
+    ],
+    "title": "LoopTrace",
+    "type": "object"
+  },
+  "GraphExpansion": {
+    "$defs": {
+      "KnowledgeGraphEdge": {
+        "properties": {
+          "edge_id": {
+            "title": "Edge Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "evidence_chunk_id": {
+            "default": "",
+            "title": "Evidence Chunk Id",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0,
+            "title": "Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "edge_id",
+          "source",
+          "relation",
+          "target"
+        ],
+        "title": "KnowledgeGraphEdge",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "enabled": {
+        "default": false,
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "query_terms": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Query Terms",
+        "type": "array"
+      },
+      "expanded_terms": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Expanded Terms",
+        "type": "array"
+      },
+      "edges": {
+        "items": {
+          "$ref": "#/$defs/KnowledgeGraphEdge"
+        },
+        "title": "Edges",
+        "type": "array"
+      }
+    },
+    "title": "GraphExpansion",
+    "type": "object"
+  },
+  "MemoryReflection": {
+    "properties": {
+      "conversation_summary": {
+        "default": "",
+        "title": "Conversation Summary",
+        "type": "string"
+      },
+      "key_insights": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Insights",
+        "type": "array"
+      },
+      "risk_lessons": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Risk Lessons",
+        "type": "array"
+      },
+      "reinforcement_queries": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Reinforcement Queries",
+        "type": "array"
+      },
+      "memory_write_recommended": {
+        "default": false,
+        "title": "Memory Write Recommended",
+        "type": "boolean"
+      },
+      "reason": {
+        "default": "",
+        "title": "Reason",
+        "type": "string"
+      }
+    },
+    "title": "MemoryReflection",
+    "type": "object"
+  },
+  "RiskAssessment": {
+    "properties": {
+      "severity": {
+        "default": "none",
+        "enum": [
+          "none",
+          "low",
+          "medium",
+          "high"
+        ],
+        "title": "Severity",
+        "type": "string"
+      },
+      "categories": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Categories",
+        "type": "array"
+      },
+      "flags": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Flags",
+        "type": "array"
+      },
+      "requires_human_review": {
+        "default": false,
+        "title": "Requires Human Review",
+        "type": "boolean"
+      },
+      "guardrails": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Guardrails",
+        "type": "array"
+      }
+    },
+    "title": "RiskAssessment",
     "type": "object"
   }
 }

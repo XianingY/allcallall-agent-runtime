@@ -6,6 +6,8 @@ from __future__ import annotations
 from ..config import config as app_config
 from ..models import (
     AgenticRAGConfig,
+    GraphExpansion,
+    IntentRoute,
     RetrievalPlan,
     RetrievalPlanStep,
     TraceEvent,
@@ -17,9 +19,10 @@ from ..helpers import (
     READ_TOOL_KNOWLEDGE_CHUNKS,
     READ_TOOL_MEETING_TRANSCRIPTS,
     WORKFLOW_CONTEXT_QA,
-    WORKFLOW_REACT_GENERAL,
-    WORKFLOW_RISK_REVIEW,
+    build_graph_expansion,
+    route_request_intent,
     tool_allowed,
+    unique_strings,
 )
 from ..state import GraphState
 
@@ -54,8 +57,30 @@ def retrieval_planner(state: GraphState) -> GraphState:
     trace = state.get("trace_events", [])
     config = resolve_agentic_rag_config(request.agentic_rag)
     enabled = agentic_rag_enabled(config)
-    plan = build_retrieval_plan(request, config, enabled)
+    route = route_request_intent(request)
+    graph = build_graph_expansion(request.goal, request.context_chunks)
+    plan = build_retrieval_plan(request, config, enabled, route, graph)
     trace.append(TraceEvent(event="graph.node.started", node="retrieval_planner", status="running"))
+    trace.append(
+        TraceEvent(
+            event="intent.route",
+            node="retrieval_planner",
+            status="completed",
+            metadata=route.model_dump(),
+        )
+    )
+    if graph.enabled:
+        trace.append(
+            TraceEvent(
+                event="rag.graph_expand",
+                node="retrieval_planner",
+                status="completed",
+                metadata={
+                    "expanded_terms": graph.expanded_terms,
+                    "edges": [edge.model_dump() for edge in graph.edges],
+                },
+            )
+        )
     trace.append(
         TraceEvent(
             event="rag.plan",
@@ -70,7 +95,13 @@ def retrieval_planner(state: GraphState) -> GraphState:
         )
     )
     trace.append(TraceEvent(event="graph.node.completed", node="retrieval_planner", status="completed"))
-    return {"trace_events": trace, "agentic_rag_enabled": enabled, "retrieval_plan": plan}
+    return {
+        "trace_events": trace,
+        "agentic_rag_enabled": enabled,
+        "intent_route": route,
+        "graph_expansion": graph,
+        "retrieval_plan": plan,
+    }
 
 
 def resolve_agentic_rag_config(config: AgenticRAGConfig) -> AgenticRAGConfig:
@@ -111,95 +142,106 @@ def agentic_rag_enabled(config: AgenticRAGConfig) -> bool:
     return config.enabled
 
 
-def build_retrieval_plan(request: WorkflowRequest, config: AgenticRAGConfig, enabled: bool) -> RetrievalPlan:
+def build_retrieval_plan(
+    request: WorkflowRequest,
+    config: AgenticRAGConfig,
+    enabled: bool,
+    route: IntentRoute | None = None,
+    graph: GraphExpansion | None = None,
+) -> RetrievalPlan:
     """Build a retrieval plan based on workflow preset and configuration."""
+    route = route or route_request_intent(request)
+    graph = graph or GraphExpansion()
     if not enabled:
-        return RetrievalPlan(enabled=False, max_steps=config.max_steps, min_confidence=config.min_confidence)
+        return RetrievalPlan(
+            enabled=False,
+            max_steps=config.max_steps,
+            min_confidence=config.min_confidence,
+            intent_route=route,
+            graph_expansion=graph,
+        )
     candidates: list[RetrievalPlanStep] = []
     goal = request.goal.strip()
-    if request.preset == WORKFLOW_CONTEXT_QA:
+    expanded = " ".join(graph.expanded_terms[:6])
+    route_sources = [item for item in route.required_source_types if item in config.allowed_source_types]
+    if route.intent == "consult" or request.preset == WORKFLOW_CONTEXT_QA:
         candidates.append(
             RetrievalPlanStep(
                 step=1,
-                query=goal,
+                query=join_query(goal, expanded, "policy knowledge checklist evidence"),
                 source_scope="knowledge",
                 tool_name=READ_TOOL_KNOWLEDGE_CHUNKS,
-                rationale="Answer-oriented questions should first inspect organization knowledge.",
+                rationale="Consult intent should first inspect organization knowledge.",
+                strategy=route.retrieval_strategy,
+                expanded_terms=graph.expanded_terms,
             )
         )
         candidates.append(
             RetrievalPlanStep(
                 step=2,
-                query=f"{goal} meeting transcript conversation evidence",
+                query=join_query(goal, "meeting transcript conversation evidence", expanded),
                 source_scope="all",
                 tool_name=READ_TOOL_CONTEXT_CHUNKS,
-                rationale="Refine with conversation and transcript evidence if knowledge is insufficient.",
+                rationale="Refine with transcript and conversation evidence if knowledge is insufficient.",
+                strategy="adaptive",
+                expanded_terms=graph.expanded_terms,
             )
         )
-    elif request.preset == WORKFLOW_RISK_REVIEW:
+    elif route.intent == "risk":
         candidates.append(
             RetrievalPlanStep(
                 step=1,
-                query=f"{goal} risk blocker approval deadline budget",
+                query=join_query(goal, "risk blocker approval deadline budget security legal"),
                 source_scope="meeting_transcript",
                 tool_name=READ_TOOL_MEETING_TRANSCRIPTS,
-                rationale="Risk review should ground claims in meeting transcript segments first.",
+                rationale="Risk intent should ground claims in meeting transcript segments first.",
+                strategy=route.retrieval_strategy,
+                expanded_terms=graph.expanded_terms,
             )
         )
         candidates.append(
             RetrievalPlanStep(
                 step=2,
-                query=f"{goal} risk policy knowledge approval",
+                query=join_query(goal, expanded, "risk policy knowledge approval guardrail"),
                 source_scope="knowledge",
                 tool_name=READ_TOOL_KNOWLEDGE_CHUNKS,
                 rationale="Supplement risks with policy or knowledge evidence.",
-            )
-        )
-    elif request.preset == WORKFLOW_REACT_GENERAL:
-        candidates.append(
-            RetrievalPlanStep(
-                step=1,
-                query=f"{goal} conversation notes transcript knowledge",
-                source_scope="all",
-                tool_name=READ_TOOL_CONTEXT_CHUNKS,
-                rationale="General ReAct runs should inspect scoped conversation context first.",
-            )
-        )
-        candidates.append(
-            RetrievalPlanStep(
-                step=2,
-                query=f"{goal} knowledge policy reference",
-                source_scope="knowledge",
-                tool_name=READ_TOOL_KNOWLEDGE_CHUNKS,
-                rationale="Refine with knowledge evidence when the conversation context is insufficient.",
+                strategy="graph_augmented" if graph.enabled else "adaptive",
+                expanded_terms=graph.expanded_terms,
             )
         )
     else:
         candidates.append(
             RetrievalPlanStep(
                 step=1,
-                query=f"{goal} meeting decisions action items risks",
-                source_scope="meeting_transcript",
-                tool_name=READ_TOOL_MEETING_TRANSCRIPTS,
-                rationale="Meeting workflows should start from recording transcript evidence.",
+                query=join_query(goal, "conversation notes transcript knowledge memory"),
+                source_scope="all",
+                tool_name=READ_TOOL_CONTEXT_CHUNKS,
+                rationale="Chat/general tasks should inspect scoped conversation and memory context first.",
+                strategy=route.retrieval_strategy,
+                expanded_terms=graph.expanded_terms,
             )
         )
         candidates.append(
             RetrievalPlanStep(
                 step=2,
-                query=f"{goal} related knowledge policy context",
+                query=join_query(goal, expanded, "related knowledge policy context"),
                 source_scope="knowledge",
                 tool_name=READ_TOOL_KNOWLEDGE_CHUNKS,
                 rationale="Retrieve related knowledge when the transcript alone does not cover policy context.",
+                strategy="graph_augmented" if graph.enabled else "adaptive",
+                expanded_terms=graph.expanded_terms,
             )
         )
     candidates.append(
         RetrievalPlanStep(
             step=len(candidates) + 1,
-            query=f"{goal} conversation notes follow ups memory",
+            query=join_query(goal, "conversation notes follow ups memory", " ".join(route_sources)),
             source_scope="all",
             tool_name=READ_TOOL_CONTEXT_CHUNKS,
             rationale="Final bounded fallback over all scoped conversation context.",
+            strategy="multi_hop" if route.intent == "risk" else "adaptive",
+            expanded_terms=graph.expanded_terms,
         )
     )
     steps: list[RetrievalPlanStep] = []
@@ -224,4 +266,15 @@ def build_retrieval_plan(request: WorkflowRequest, config: AgenticRAGConfig, ena
                 rationale="Fallback to scoped context retrieval.",
             )
         )
-    return RetrievalPlan(enabled=True, max_steps=config.max_steps, min_confidence=config.min_confidence, steps=steps)
+    return RetrievalPlan(
+        enabled=True,
+        max_steps=config.max_steps,
+        min_confidence=config.min_confidence,
+        steps=steps,
+        intent_route=route,
+        graph_expansion=graph,
+    )
+
+
+def join_query(*parts: str) -> str:
+    return " ".join(unique_strings([part for part in parts if part.strip()]))

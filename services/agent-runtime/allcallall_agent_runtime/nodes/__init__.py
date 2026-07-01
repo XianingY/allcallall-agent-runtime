@@ -5,7 +5,7 @@ from __future__ import annotations
 from .approval import approval_gate, finalize, propose_tools
 from .context import collect_context, retrieval_planner
 from .retrieval import rerank_context, retrieve_context, retrieval_loop
-from .synthesis import decompose, risk_analyst, searcher, synthesize
+from .synthesis import decompose, memory_agent, reflect_and_plan_memory, risk_analyst, searcher, synthesize
 
 __all__ = [
     "collect_context",
@@ -15,8 +15,10 @@ __all__ = [
     "rerank_context",
     "decompose",
     "searcher",
+    "memory_agent",
     "synthesize",
     "risk_analyst",
+    "reflect_and_plan_memory",
     "propose_tools",
     "approval_gate",
     "finalize",

@@ -12,7 +12,9 @@ from .nodes import (
     collect_context,
     decompose,
     finalize,
+    memory_agent,
     propose_tools,
+    reflect_and_plan_memory,
     retrieval_planner,
     retrieval_loop,
     retrieve_context,
@@ -36,10 +38,12 @@ def build_workflow_graph() -> Any:
     graph.add_node("sufficiency_gate", sufficiency_gate)
     graph.add_node("decompose", decompose)
     graph.add_node("searcher", searcher)
+    graph.add_node("memory_agent", memory_agent)
     graph.add_node("synthesize", synthesize)
     graph.add_node("risk_analyst", risk_analyst)
     graph.add_node("merge", merge)
     graph.add_node("grounding_check", grounding_check)
+    graph.add_node("memory_reflection", reflect_and_plan_memory)
     graph.add_node("propose_tools", propose_tools)
     graph.add_node("approval_gate", approval_gate)
     graph.add_node("finalize", finalize)
@@ -52,11 +56,13 @@ def build_workflow_graph() -> Any:
     graph.add_edge("evidence_pack", "sufficiency_gate")
     graph.add_edge("sufficiency_gate", "decompose")
     graph.add_edge("decompose", "searcher")
-    graph.add_edge("searcher", "synthesize")
+    graph.add_edge("searcher", "memory_agent")
+    graph.add_edge("memory_agent", "synthesize")
     graph.add_edge("synthesize", "risk_analyst")
     graph.add_edge("risk_analyst", "merge")
     graph.add_edge("merge", "grounding_check")
-    graph.add_edge("grounding_check", "propose_tools")
+    graph.add_edge("grounding_check", "memory_reflection")
+    graph.add_edge("memory_reflection", "propose_tools")
     graph.add_edge("propose_tools", "approval_gate")
     graph.add_edge("approval_gate", "finalize")
     graph.add_edge("finalize", END)

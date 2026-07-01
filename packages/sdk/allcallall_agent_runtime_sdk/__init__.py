@@ -1,4 +1,6 @@
 from .client import AgentRuntimeClient, RAGRuntimeClient, RuntimeClientError
+from shared.models import AgentHarnessMetadata, CriticResult, LoopBudget, LoopTrace, RouteDecision
+
 from .models import (
     AgentRunRequest,
     AgentRunResponse,
@@ -20,6 +22,11 @@ __all__ = [
     "RuntimeClientError",
     "AgentRunRequest",
     "AgentRunResponse",
+    "AgentHarnessMetadata",
+    "CriticResult",
+    "LoopBudget",
+    "LoopTrace",
+    "RouteDecision",
     "WorkflowRequest",
     "WorkflowResponse",
     "RetrievalQueryRequest",
@@ -31,4 +38,3 @@ __all__ = [
     "GroundingCheckRequest",
     "GroundingCheckResponse",
 ]
-

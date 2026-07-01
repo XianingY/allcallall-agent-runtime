@@ -9,7 +9,10 @@ from shared.models import (
     ContextChunk,
     ContextSufficiency,
     EvidencePack,
+    GraphExpansion,
+    KnowledgeGraphEdge,
     RetrievalAttempt,
+    RetrievalRoute,
 )
 
 
@@ -95,6 +98,32 @@ class TestRetrievalAttempt:
         assert attempt.refined is True
         assert attempt.confidence == 0.8
         assert len(attempt.selected_chunk_ids) == 2
+
+    def test_adaptive_metadata_defaults(self) -> None:
+        attempt = RetrievalAttempt(step=1, query="risk", strategy="multi_hop")
+        assert attempt.strategy == "multi_hop"
+        assert attempt.expanded_terms == []
+        assert attempt.graph_edge_ids == []
+
+
+class TestRetrievalRouteAndGraph:
+    def test_route_defaults(self) -> None:
+        route = RetrievalRoute()
+        assert route.intent == "chat"
+        assert route.retrieval_strategy == "adaptive"
+
+    def test_graph_expansion(self) -> None:
+        edge = KnowledgeGraphEdge(
+            edge_id="kg-1",
+            source="Checklist",
+            relation="requires",
+            target="QA signoff",
+            evidence_chunk_id="kb-1",
+            confidence=0.72,
+        )
+        graph = GraphExpansion(enabled=True, expanded_terms=["qa", "signoff"], edges=[edge])
+        assert graph.enabled is True
+        assert graph.edges[0].relation == "requires"
 
 
 class TestEvidencePack:

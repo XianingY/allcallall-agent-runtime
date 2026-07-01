@@ -37,6 +37,12 @@ class AgentRuntimeConfig(BaseSettings):
     prompt_version: str = ""
     enable_grounding_check: bool = False
 
+    # Harness / loop engineering settings
+    harness: str = "allcallall_v1"
+    loop_max_steps: int = 5
+    enable_critic: bool = True
+    enable_memory_reflection: bool = True
+
     model_config = {"env_prefix": "PY_AGENT_"}
 
 

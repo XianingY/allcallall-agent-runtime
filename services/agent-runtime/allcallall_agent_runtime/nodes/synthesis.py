@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 
 from ..models import (
     Citation,
     ContextSufficiency,
+    MemoryReflection,
+    RiskAssessment,
     RoleResult,
     TraceEvent,
     WorkflowRequest,
@@ -41,8 +45,9 @@ def decompose(state: GraphState) -> GraphState:
             node="decompose",
             status="completed",
             metadata={
-                "roles": ["searcher", "summarizer", "risk_analyst"],
-                "pattern": "workflow_dag_with_bounded_react",
+                "supervisor": "workflow_supervisor",
+                "roles": ["searcher", "memory_agent", "summarizer", "risk_guardian"],
+                "pattern": "workflow_dag_with_bounded_react_and_reflection",
             },
         )
     )
@@ -66,6 +71,42 @@ def searcher(state: GraphState) -> GraphState:
     role_results = state.get("role_results", [])
     role_results.append(result)
     return {"trace_events": trace, "role_results": role_results, "searcher": result}
+
+
+def memory_agent(state: GraphState) -> GraphState:
+    """Summarize durable memory and prior context for downstream roles."""
+    request = request_with_runtime_context(state)
+    memory_chunks = [
+        chunk
+        for chunk in request.context_chunks
+        if chunk.source_type in {"memory", "contact_profile", "followup"}
+    ]
+    snippets = top_snippets(memory_chunks, 4)
+    citations = citations_from_chunks(memory_chunks)
+    if snippets:
+        summary = "MemoryAgent: 已读取历史记忆和跟进上下文：" + snippets[0][:160]
+    else:
+        summary = "MemoryAgent: 未发现可复用的历史记忆，后续将基于本轮证据生成反思记忆。"
+    result = RoleResult(
+        role="memory_agent",
+        summary=summary,
+        citations=citations,
+        snippets=snippets,
+    )
+    trace = state.get("trace_events", [])
+    trace.append(TraceEvent(event="graph.node.started", node="memory_agent", role="memory_agent"))
+    trace.append(
+        TraceEvent(
+            event="memory.read",
+            node="memory_agent",
+            role="memory_agent",
+            metadata={"memory_chunks": len(memory_chunks), "citations": len(citations)},
+        )
+    )
+    trace.append(TraceEvent(event="graph.node.completed", node="memory_agent", role="memory_agent"))
+    role_results = state.get("role_results", [])
+    role_results.append(result)
+    return {"trace_events": trace, "role_results": role_results, "memory_agent": result}
 
 
 def synthesize(state: GraphState) -> GraphState:
@@ -287,16 +328,95 @@ def risk_analyst(state: GraphState) -> GraphState:
     )
     result.summary = f"Risk analyst inspected context with {len(result.react_trace)} bounded read-tool iteration(s)."
     result.risk_flags = infer_risk_flags(request, result.snippets)
+    assessment = build_risk_assessment(result.risk_flags)
     trace.extend(result.react_trace)
     trace.append(
         TraceEvent(
             event="risk.reasoning",
             node="risk_analyst",
             role="risk_analyst",
-            metadata={"risk_flags": result.risk_flags},
+            metadata={"risk_flags": result.risk_flags, "risk_assessment": assessment.model_dump()},
         )
     )
     trace.append(TraceEvent(event="graph.node.completed", node="risk_analyst", role="risk_analyst"))
     role_results = state.get("role_results", [])
     role_results.append(result)
-    return {"trace_events": trace, "role_results": role_results, "risk_analyst": result}
+    return {
+        "trace_events": trace,
+        "role_results": role_results,
+        "risk_analyst": result,
+        "risk_assessment": assessment,
+    }
+
+
+def build_risk_assessment(flags: list[str]) -> RiskAssessment:
+    categories: list[str] = []
+    if "approval_sensitive_action" in flags:
+        categories.append("approval")
+    if "budget_or_timeline_risk" in flags:
+        categories.append("delivery")
+    if "unresolved_meeting_risk" in flags:
+        categories.append("open_issue")
+    severity: Literal["none", "low", "medium", "high"] = "none"
+    if len(categories) >= 2:
+        severity = "high"
+    elif categories:
+        severity = "medium"
+    guardrails = []
+    if categories:
+        guardrails.append("Do not execute write tools without human approval.")
+        guardrails.append("Require cited evidence for risk statements.")
+    return RiskAssessment(
+        severity=severity,
+        categories=unique_strings(categories),
+        flags=flags,
+        requires_human_review=bool(categories),
+        guardrails=guardrails,
+    )
+
+
+def reflect_and_plan_memory(state: GraphState) -> GraphState:
+    """Reflect on the grounded run and decide whether memory should be upserted."""
+    sufficiency = state.get("context_sufficiency", ContextSufficiency())
+    summary = state.get("summary", "")
+    risk_flags = state.get("risk_flags", [])
+    action_items = state.get("action_items", [])
+    route = state.get("intent_route")
+    route_intent = route.intent if route is not None else ""
+    key_insights = unique_strings(
+        [summary[:220]]
+        + [f"action_item:{item}" for item in action_items[:3]]
+        + [f"risk_flag:{item}" for item in risk_flags]
+    )
+    risk_lessons = [f"guard:{item}" for item in risk_flags]
+    reinforcement_queries = unique_strings(
+        [
+            state["request"].goal,
+            f"{state['request'].goal} {route_intent} memory",
+            *risk_flags,
+        ]
+    )[:4]
+    reflection = MemoryReflection(
+        conversation_summary=summary[:300],
+        key_insights=key_insights,
+        risk_lessons=risk_lessons,
+        reinforcement_queries=reinforcement_queries,
+        memory_write_recommended=sufficiency.sufficient and bool(summary),
+        reason=(
+            "grounded output is sufficient for scoped memory"
+            if sufficiency.sufficient
+            else "skip memory write because context is insufficient"
+        ),
+    )
+    trace = state.get("trace_events", [])
+    trace.append(TraceEvent(event="graph.node.started", node="memory_reflection", status="running"))
+    trace.append(
+        TraceEvent(
+            event="memory.reflect",
+            node="memory_reflection",
+            status="completed",
+            metadata=reflection.model_dump(),
+        )
+    )
+    trace.append(TraceEvent(event="graph.node.completed", node="memory_reflection", status="completed"))
+    return {"trace_events": trace, "memory_reflection": reflection}

@@ -2,92 +2,31 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from .helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
-from .dag import build_workflow_graph
+from .helpers import SUPPORTED_WORKFLOWS
+from .harness import AllCallAllAgentHarness
 from .models import (
     AgentRunRequest,
     AgentRunResponse,
     MeetingBriefRequest,
     MeetingBriefResponse,
-    TraceEvent,
     WorkflowRequest,
     WorkflowResponse,
 )
-from .config import config as app_config
-from .providers import ProviderError, create_provider
-from .prompts import prompt_version_for
-from .tool_bridge import GoToolBridge
 
 
 def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
     """Run the meeting brief workflow."""
-    return run_workflow(request.model_copy(update={"preset": "meeting_brief"}))
+    return AllCallAllAgentHarness().run_meeting_brief(request)
 
 
 def run_react_agent(request: AgentRunRequest) -> AgentRunResponse:
     """Run the react agent workflow."""
-    return run_workflow(request.model_copy(update={"preset": "react_general"}))
+    return AllCallAllAgentHarness().run_react_agent(request)
 
 
 def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
     """Run a workflow with the given request."""
-    preset = normalize_workflow_preset(request.preset)
-    if preset not in SUPPORTED_WORKFLOWS:
-        return WorkflowResponse(
-            status="failed",
-            provider=app_config.provider or "rules",
-            error=f"unsupported workflow preset: {request.preset}",
-        )
-    request = request.model_copy(update={"preset": preset})
-    try:
-        provider = create_provider()
-        graph = build_workflow_graph()
-        result = graph.invoke(
-            {
-                "request": request,
-                "provider": provider,
-                "tool_bridge": GoToolBridge(),
-                "trace_events": [],
-                "role_results": [],
-            }
-        )
-    except ProviderError as exc:
-        return WorkflowResponse(
-            status="failed",
-            provider=app_config.provider or "openai_compatible",
-            error=f"{exc.kind}: {exc}",
-            trace_events=[
-                TraceEvent(
-                    event="provider.error",
-                    node="provider",
-                    status="failed",
-                    metadata={"kind": exc.kind, "retryable": exc.retryable},
-                )
-            ],
-        )
-    proposed = result.get("proposed_tool_calls", [])
-    status = "requires_action" if proposed else "ready"
-    provider_name = app_config.provider or "rules"
-    if "provider" in locals():
-        provider_name = provider.name
-    return WorkflowResponse(
-        status=status,
-        provider=provider_name,
-        summary=result.get("summary", ""),
-        action_items=result.get("action_items", []),
-        next_step=result.get("next_step", ""),
-        risk_flags=result.get("risk_flags", []),
-        citations=result.get("citations", []),
-        role_results=result.get("role_results", []),
-        trace_events=result.get("trace_events", []),
-        proposed_tool_calls=proposed,
-        prompt_version=result.get("prompt_version", prompt_version_for(request)),
-        grounding_check_result=result.get("grounding_check_result", {}),
-        retrieval_plan=result.get("retrieval_plan", None),
-        retrieval_attempts=result.get("retrieval_attempts", []),
-        evidence_pack=result.get("evidence_pack", None),
-        context_sufficiency=result.get("context_sufficiency", None),
-    )
+    return AllCallAllAgentHarness().run_workflow(request)
 
 app = FastAPI(title="AllCallAll Agent Runtime", version="0.1.0")
 
@@ -111,9 +50,24 @@ def workflows() -> dict[str, list[str]]:
 def capabilities() -> dict[str, object]:
     return {
         "runtime": "python_langgraph",
-        "agents": ["react_general"],
+        "harness": "allcallall_v1",
+        "agents": ["react_general", "searcher", "memory_agent", "summarizer", "risk_guardian"],
         "workflows": sorted(SUPPORTED_WORKFLOWS),
+        "input_modalities": ["text", "image_metadata", "audio_transcript", "video_transcript"],
+        "intent_routes": ["chat", "consult", "risk"],
+        "loop_engineering": {
+            "contract": ["LoopSpec", "LoopState", "LoopStep", "LoopBudget", "LoopStopReason", "LoopTrace"],
+            "bounded_roles": {"searcher": 3, "risk_guardian": 2, "memory_agent": 1, "follow_up_planner": 2},
+            "write_tools": "proposal_only",
+        },
+        "rag": ["dynamic_routing", "agentic_refinement", "knowledge_graph_expansion"],
+        "memory": ["reflection", "approval_gated_upsert"],
         "write_tools": "proposal_only",
+        "tool_queue": {
+            "mode": "async_after_approval",
+            "retry": "bounded",
+            "dead_letter": True,
+        },
     }
 
 
