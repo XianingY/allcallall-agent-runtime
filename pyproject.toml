@@ -9,3 +9,9 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.11"
 strict = true
 
+# uv workspace: link the local runtime packages so `allcallall-shared` and the
+# SDK resolve as path dependencies instead of PyPI lookups, and `uv.lock` pins
+# the full (including dev/extra) dependency graph for reproducible builds.
+[tool.uv.workspace]
+members = ["services/agent-runtime", "services/rag-runtime", "packages/shared", "packages/sdk"]
+

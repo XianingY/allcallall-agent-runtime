@@ -19,6 +19,9 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["allcallall_agent_runtime_sdk*"]
 
+[tool.uv.sources]
+allcallall-shared = { workspace = true }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

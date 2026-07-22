@@ -30,6 +30,9 @@ dev = [
 include = ["allcallall_rag_runtime*"]
 exclude = ["evals*", "tests*"]
 
+[tool.uv.sources]
+allcallall-shared = { workspace = true }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
