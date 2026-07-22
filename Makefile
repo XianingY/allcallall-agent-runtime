@@ -14,21 +14,27 @@ install-dev: venv
 	$(PYTHON) -m pip install -e "packages/shared[dev]"
 	$(PYTHON) -m pip install -e "services/agent-runtime[dev]"
 	$(PYTHON) -m pip install -e "services/rag-runtime[dev]"
+	$(PYTHON) -m pip install -e "services/sandbox-runner[dev]"
+	$(PYTHON) -m pip install -e "services/interview-mcp[dev]"
 	$(PYTHON) -m pip install -e "packages/sdk[dev]"
 
 test:
 	cd packages/shared && $(PYTHON) -m pytest
 	cd services/agent-runtime && $(PYTHON) -m pytest
 	cd services/rag-runtime && $(PYTHON) -m pytest
+	cd services/sandbox-runner && $(PYTHON) -m pytest
+	cd services/interview-mcp && $(PYTHON) -m pytest
 	cd packages/sdk && $(PYTHON) -m pytest
 
 lint:
-	$(PYTHON) -m ruff check packages/shared services/agent-runtime services/rag-runtime packages/sdk scripts
+	$(PYTHON) -m ruff check packages/shared services/agent-runtime services/rag-runtime services/sandbox-runner services/interview-mcp packages/sdk scripts
 
 typecheck:
 	cd packages/shared && $(PYTHON) -m mypy .
 	cd services/agent-runtime && $(PYTHON) -m mypy .
 	cd services/rag-runtime && $(PYTHON) -m mypy .
+	cd services/sandbox-runner && $(PYTHON) -m mypy .
+	cd services/interview-mcp && $(PYTHON) -m mypy .
 	cd packages/sdk && $(PYTHON) -m mypy .
 
 contracts:

@@ -13,5 +13,12 @@ strict = true
 # SDK resolve as path dependencies instead of PyPI lookups, and `uv.lock` pins
 # the full (including dev/extra) dependency graph for reproducible builds.
 [tool.uv.workspace]
-members = ["services/agent-runtime", "services/rag-runtime", "packages/shared", "packages/sdk"]
+members = [
+    "services/agent-runtime",
+    "services/rag-runtime",
+    "services/sandbox-runner",
+    "services/interview-mcp",
+    "packages/shared",
+    "packages/sdk",
+]
 
