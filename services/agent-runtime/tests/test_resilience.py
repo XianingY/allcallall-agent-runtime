@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from typing import Any
 
 import allcallall_agent_runtime.config as _cfg
+from allcallall_agent_runtime.models import RetrievalPlan, RetrievalPlanStep, WorkflowRequest
 from allcallall_agent_runtime.providers import ProviderError
 from allcallall_agent_runtime.providers.openai_compatible import OpenAICompatibleProvider
 from allcallall_agent_runtime.retry import with_retry
 from allcallall_agent_runtime.tool_bridge import GoToolBridge, ToolBridgeError
-from allcallall_agent_runtime.rag_runtime_client import RAGRuntimeClient, RAGRuntimeError
+from allcallall_agent_runtime.rag_runtime_client import RAGRuntimeClient
 
 
-def _provider(monkeypatch: pytest.MonkeyPatch, **overrides: object) -> OpenAICompatibleProvider:
-    settings = dict(
+def _provider(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> OpenAICompatibleProvider:
+    settings: dict[str, Any] = dict(
         provider="openai_compatible",
         openai_base_url="http://test",
         openai_api_key="k",
@@ -25,8 +27,8 @@ def _provider(monkeypatch: pytest.MonkeyPatch, **overrides: object) -> OpenAICom
     return OpenAICompatibleProvider()
 
 
-def _bridge(monkeypatch: pytest.MonkeyPatch, **overrides: object) -> GoToolBridge:
-    settings = dict(
+def _bridge(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> GoToolBridge:
+    settings: dict[str, Any] = dict(
         tool_bridge_base_url="http://go",
         tool_bridge_token="t",
         tool_bridge_max_retries=2,
@@ -36,8 +38,8 @@ def _bridge(monkeypatch: pytest.MonkeyPatch, **overrides: object) -> GoToolBridg
     return GoToolBridge()
 
 
-def _rag(monkeypatch: pytest.MonkeyPatch, **overrides: object) -> RAGRuntimeClient:
-    settings = dict(rag_runtime_base_url="http://rag", rag_runtime_max_retries=2)
+def _rag(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> RAGRuntimeClient:
+    settings: dict[str, Any] = dict(rag_runtime_base_url="http://rag", rag_runtime_max_retries=2)
     settings.update(overrides)
     monkeypatch.setattr(_cfg, "config", _cfg.AgentRuntimeConfig(**settings))
     return RAGRuntimeClient()
@@ -181,9 +183,7 @@ def test_rag_retries_503_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls["n"] == 2
 
 
-def _dummy_request():
-    from allcallall_agent_runtime.models import WorkflowRequest
-
+def _dummy_request() -> WorkflowRequest:
     return WorkflowRequest(
         organization_id=1,
         user_id=2,
@@ -193,13 +193,9 @@ def _dummy_request():
     )
 
 
-def _dummy_step():
-    from allcallall_agent_runtime.models import RetrievalPlanStep
-
+def _dummy_step() -> RetrievalPlanStep:
     return RetrievalPlanStep(step=1, source_scope="all", query="q", strategy="single_pass")
 
 
-def _dummy_plan():
-    from allcallall_agent_runtime.models import RetrievalPlan
-
+def _dummy_plan() -> RetrievalPlan:
     return RetrievalPlan(min_confidence=0.6, steps=[_dummy_step()])

@@ -4,7 +4,12 @@ from allcallall_agent_runtime.helpers import route_request_intent
 from allcallall_agent_runtime.models import ConversationMessage, WorkflowRequest
 
 
-def _request(goal: str = "g", preset: str = "meeting_brief", messages=None, notes=None) -> WorkflowRequest:
+def _request(
+    goal: str = "g",
+    preset: str = "meeting_brief",
+    messages: list[ConversationMessage] | None = None,
+    notes: list[object] | None = None,
+) -> WorkflowRequest:
     return WorkflowRequest(
         organization_id=1,
         user_id=2,

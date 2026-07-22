@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from allcallall_agent_runtime.helpers import (
     build_graph_expansion,
     citations_from_chunks,
@@ -21,14 +23,13 @@ from allcallall_agent_runtime.helpers import (
 from allcallall_agent_runtime.models import (
     Citation,
     ContextChunk,
-    ContextSufficiency,
     EvidencePack,
     WorkflowRequest,
 )
 
 
-def _request(preset: str = "meeting_brief", **kw) -> WorkflowRequest:
-    base = dict(organization_id=1, user_id=2, conversation_id=3, workflow_run_id=9, goal="g")
+def _request(preset: str = "meeting_brief", **kw: Any) -> WorkflowRequest:
+    base: dict[str, Any] = dict(organization_id=1, user_id=2, conversation_id=3, workflow_run_id=9, goal="g")
     base.update(kw)
     return WorkflowRequest(preset=preset, **base)
 
