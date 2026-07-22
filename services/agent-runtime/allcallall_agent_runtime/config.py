@@ -33,6 +33,13 @@ class AgentRuntimeConfig(BaseSettings):
     rag_max_retrieval_steps: int = 3
     rag_min_confidence: float = 0.6
 
+    # Resilience settings (retry with exponential backoff)
+    provider_max_retries: int = 2
+    tool_bridge_max_retries: int = 2
+    rag_runtime_max_retries: int = 2
+    retry_base_delay_sec: float = 0.5
+    retry_max_delay_sec: float = 4.0
+
     # Prompt settings
     prompt_version: str = ""
     enable_grounding_check: bool = False

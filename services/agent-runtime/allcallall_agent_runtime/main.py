@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
+from .config import config as runtime_config
 from .helpers import SUPPORTED_WORKFLOWS
 from .harness import AllCallAllAgentHarness
+from .metrics import registry
 from .models import (
     AgentRunRequest,
     AgentRunResponse,
@@ -16,16 +18,19 @@ from .models import (
 
 def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
     """Run the meeting brief workflow."""
+    registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
     return AllCallAllAgentHarness().run_meeting_brief(request)
 
 
 def run_react_agent(request: AgentRunRequest) -> AgentRunResponse:
     """Run the react agent workflow."""
+    registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
     return AllCallAllAgentHarness().run_react_agent(request)
 
 
 def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
     """Run a workflow with the given request."""
+    registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
     return AllCallAllAgentHarness().run_workflow(request)
 
 app = FastAPI(title="AllCallAll Agent Runtime", version="0.1.0")
@@ -37,8 +42,25 @@ def health() -> dict[str, str]:
 
 
 @app.get("/ready")
-def ready() -> dict[str, str]:
-    return {"status": "ready"}
+def ready() -> dict[str, object]:
+    # Readiness reflects whether the process can serve requests and which
+    # downstream integrations are wired. We intentionally do NOT ping the Go
+    # tool bridge or RAG runtime here: a liveness/ready probe that depends on
+    # downstream health can cause cascading failures and flap during incidents.
+    return {
+        "status": "ready",
+        "provider": runtime_config.provider,
+        "provider_strict": runtime_config.provider_strict,
+        "tool_bridge_configured": bool(runtime_config.tool_bridge_base_url and runtime_config.tool_bridge_token),
+        "rag_runtime_configured": bool(runtime_config.rag_runtime_base_url),
+        "agentic_rag": runtime_config.enable_agentic_rag,
+    }
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    """Prometheus text exposition of in-process counters."""
+    return Response(content=registry.render_prometheus(), media_type="text/plain; version=0.0.4")
 
 
 @app.get("/v1/workflows")

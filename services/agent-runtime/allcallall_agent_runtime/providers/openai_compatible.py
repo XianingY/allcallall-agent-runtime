@@ -6,8 +6,10 @@ from typing import Any
 import httpx
 
 import allcallall_agent_runtime.config as _cfg
+from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import WorkflowRequest
 from allcallall_agent_runtime.prompts import structured_prompt_for
+from allcallall_agent_runtime.retry import with_retry
 
 from .base import ProviderError, ProviderSynthesis
 
@@ -21,10 +23,21 @@ class OpenAICompatibleProvider:
         self.model = _cfg.config.openai_model.strip()
         self.timeout_sec = max(1, int(_cfg.config.openai_timeout_sec))
         self.strict = _cfg.config.provider_strict
+        self.max_retries = max(0, int(_cfg.config.provider_max_retries))
+        self._http: httpx.Client | None = None
         if not self.base_url or not self.model:
             message = "PY_AGENT_OPENAI_BASE_URL and PY_AGENT_OPENAI_MODEL are required for openai_compatible provider"
             if self.strict:
                 raise ProviderError(message, kind="configuration", retryable=False)
+
+    @property
+    def _client(self) -> httpx.Client:
+        # Reuse a single connection pool across all synthesize() calls in a run
+        # (e.g. a DAG workflow invokes the provider multiple times) instead of
+        # opening a fresh socket per request.
+        if self._http is None:
+            self._http = httpx.Client(timeout=self.timeout_sec)
+        return self._http
 
     def synthesize(self, request: WorkflowRequest, snippets: list[str]) -> ProviderSynthesis | None:
         if not self.base_url or not self.model:
@@ -39,39 +52,56 @@ class OpenAICompatibleProvider:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        try:
-            with httpx.Client(timeout=self.timeout_sec) as client:
-                response = client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise ProviderError(
-                f"openai compatible provider timed out: {exc}",
-                kind="timeout",
-                retryable=True,
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise ProviderError(
-                f"openai compatible provider unavailable: {exc}",
-                kind="network",
-                retryable=True,
-            ) from exc
-        if response.status_code == 401 or response.status_code == 403:
-            raise ProviderError(
-                "openai compatible provider authentication failed",
-                kind="authentication",
-                retryable=False,
-            )
-        if response.status_code == 429 or response.status_code >= 500:
-            raise ProviderError(
-                f"openai compatible provider retryable status {response.status_code}",
-                kind="retryable_http",
-                retryable=True,
-            )
-        if response.status_code >= 400:
-            raise ProviderError(
-                f"openai compatible provider failed with status {response.status_code}: {response.text[:300]}",
-                kind="request",
-                retryable=False,
-            )
+
+        def _call() -> httpx.Response:
+            try:
+                response = self._client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
+            except httpx.TimeoutException as exc:
+                raise ProviderError(
+                    f"openai compatible provider timed out: {exc}",
+                    kind="timeout",
+                    retryable=True,
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise ProviderError(
+                    f"openai compatible provider unavailable: {exc}",
+                    kind="network",
+                    retryable=True,
+                ) from exc
+            if response.status_code == 401 or response.status_code == 403:
+                raise ProviderError(
+                    "openai compatible provider authentication failed",
+                    kind="authentication",
+                    retryable=False,
+                )
+            if response.status_code == 429 or response.status_code >= 500:
+                raise ProviderError(
+                    f"openai compatible provider retryable status {response.status_code}",
+                    kind="retryable_http",
+                    retryable=True,
+                )
+            if response.status_code >= 400:
+                raise ProviderError(
+                    f"openai compatible provider failed with status {response.status_code}: {response.text[:300]}",
+                    kind="request",
+                    retryable=False,
+                )
+            return response
+
+        # Retry only transient faults (timeout/network/429/5xx). Permanent
+        # failures (auth/request/decode) propagate immediately. On exhaustion the
+        # last ProviderError is re-raised and the harness degrades to rules.
+        response = with_retry(
+            _call,
+            should_retry=lambda exc: isinstance(exc, ProviderError) and exc.retryable,
+            max_attempts=self.max_retries + 1,
+            base_delay_sec=_cfg.config.retry_base_delay_sec,
+            max_delay_sec=_cfg.config.retry_max_delay_sec,
+            on_retry=lambda exc, attempt: registry.counter(
+                "agent_runtime_provider_retries_total",
+                "Retries performed by the LLM provider client on transient faults",
+            ).inc(),
+        )
         content = extract_chat_content(response.json())
         try:
             raw = json.loads(content)
