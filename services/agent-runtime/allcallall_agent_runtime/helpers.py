@@ -95,18 +95,25 @@ def first_non_empty(values: list[str]) -> str:
 
 
 def route_request_intent(request: WorkflowRequest) -> IntentRoute:
-    """Route the request into chat, consult, or risk intent before retrieval."""
-    goal_text = " ".join([request.preset, request.goal]).lower()
+    """Route the request into chat, consult, or risk intent before retrieval.
+
+    The preset is the strongest signal: ``risk_review`` and ``context_qa``
+    short-circuit to their intent. Beyond the preset/goal, the router also
+    inspects the full request surface (message bodies, notes, attachment text)
+    via :func:`route_text` so that the *content* of a conversation drives
+    routing instead of only the declared goal.
+    """
+    routing_text = route_text(request).lower()
     if request.preset == WORKFLOW_RISK_REVIEW:
         return IntentRoute(
             intent="risk",
             target_workflow=request.preset,
             confidence=0.9,
-            rationale="risk keywords or risk workflow require transcript, policy, and memory evidence",
+            rationale="risk workflow requires transcript, policy, and memory evidence",
             required_source_types=["meeting_transcript", "knowledge", "memory"],
             retrieval_strategy="multi_hop",
         )
-    if request.preset == WORKFLOW_CONTEXT_QA or contains_any(goal_text, consult_keywords()):
+    if request.preset == WORKFLOW_CONTEXT_QA or contains_any(routing_text, consult_keywords()):
         return IntentRoute(
             intent="consult",
             target_workflow=request.preset,
@@ -115,7 +122,7 @@ def route_request_intent(request: WorkflowRequest) -> IntentRoute:
             required_source_types=["knowledge", "meeting_transcript", "memory"],
             retrieval_strategy="graph_augmented",
         )
-    if contains_any(goal_text, risk_keywords()):
+    if contains_any(routing_text, risk_keywords()):
         return IntentRoute(
             intent="risk",
             target_workflow=request.preset,
@@ -135,17 +142,17 @@ def route_request_intent(request: WorkflowRequest) -> IntentRoute:
 
 
 def route_text(request: WorkflowRequest) -> str:
-    """Build text used for deterministic routing."""
+    """Build the user-authored text used for deterministic routing.
+
+    Only the request surface the *user* explicitly authored is included: the
+    preset, goal, conversation messages, and notes. Retrieved evidence
+    (``context_chunks``, ``meeting_transcripts``) and attachment-derived text
+    (OCR/caption/transcript) are deliberately excluded — routing must reflect
+    the user's intent, not preloaded context or brittle attachment substrings.
+    """
     parts = [request.preset, request.goal]
     parts.extend(message.body for message in request.messages)
     parts.extend(note.body for note in request.notes)
-    parts.extend(segment.text for segment in request.meeting_transcripts)
-    parts.extend(chunk.snippet for chunk in request.context_chunks)
-    parts.extend(attachment.description for attachment in request.attachments)
-    parts.extend(attachment.extracted_text for attachment in request.attachments)
-    parts.extend(attachment.ocr_text for attachment in request.attachments)
-    parts.extend(attachment.caption_text for attachment in request.attachments)
-    parts.extend(attachment.transcript_text for attachment in request.attachments)
     return " ".join(part for part in parts if part)
 
 
