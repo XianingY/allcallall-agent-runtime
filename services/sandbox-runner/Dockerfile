@@ -9,10 +9,10 @@ RUN mkdir -p /tmp/runner-deps/app \
     && rm -rf /tmp/runner-deps
 
 COPY pyproject.toml ./
-COPY app ./app
+COPY allcallall_sandbox_runner ./allcallall_sandbox_runner
 RUN pip install --no-cache-dir --no-deps .
 
 USER 10001:10001
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 EXPOSE 8093
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8093", "--no-access-log"]
+CMD ["uvicorn", "allcallall_sandbox_runner.main:app", "--host", "0.0.0.0", "--port", "8093", "--no-access-log"]
