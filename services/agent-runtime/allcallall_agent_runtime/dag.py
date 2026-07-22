@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 
 from .state import GraphState
@@ -27,8 +28,12 @@ from .nodes import (
 from .nodes.retrieval import build_evidence_pack, grounding_check, merge, sufficiency_gate
 
 
-def build_workflow_graph() -> Any:
-    """Build and compile the LangGraph workflow graph."""
+def build_workflow_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Any:
+    """Build and compile the LangGraph workflow graph.
+
+    When ``checkpointer`` is provided (e.g. the MySQL ``CheckpointSaver``), the
+    compiled graph gains durable, resumable checkpoints keyed by thread id.
+    """
     graph = StateGraph(GraphState)
     graph.add_node("collect_context", collect_context)
     graph.add_node("retrieval_planner", retrieval_planner)
@@ -69,4 +74,4 @@ def build_workflow_graph() -> Any:
     graph.add_edge("critic_check", "approval_gate")
     graph.add_edge("approval_gate", "finalize")
     graph.add_edge("finalize", END)
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

@@ -12,6 +12,8 @@ dependencies = [
   "pydantic>=2.7,<3",
   "pydantic-settings>=2.3,<3",
   "uvicorn[standard]>=0.30,<1",
+  "pymysql>=1.1,<2",
+  "anyio>=4.0,<5",
 ]
 
 [project.scripts]
@@ -45,3 +47,7 @@ target-version = "py311"
 python_version = "3.11"
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "pymysql.*"
+ignore_missing_imports = true

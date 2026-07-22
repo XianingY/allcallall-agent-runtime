@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from threading import Lock
 from typing import Any
 
 from .config import config as app_config
+from .checkpoint import MySQLCheckpointSaver
 from .dag import build_workflow_graph
 from .helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
 from .models import (
@@ -38,6 +40,30 @@ from .providers import ProviderError, create_provider
 from .tool_bridge import GoToolBridge
 
 
+_graph: Any | None = None
+_graph_lock = Lock()
+
+
+def get_workflow_graph() -> Any:
+    """Return a process-wide compiled workflow graph.
+
+    Mirrors the legacy in-tree runtime: when ``PY_AGENT_CHECKPOINT_MYSQL_ENABLED``
+    is set, a ``MySQLCheckpointSaver`` is attached so workflow runs are durable
+    and resumable across restarts; otherwise an in-memory graph is used.
+    """
+    global _graph
+    if _graph is None:
+        with _graph_lock:
+            if _graph is None:
+                checkpointer = None
+                if app_config.checkpoint_mysql_enabled:
+                    if not app_config.checkpoint_mysql_dsn.strip():
+                        raise ValueError("PY_AGENT_CHECKPOINT_MYSQL_DSN is required when MySQL checkpoints are enabled")
+                    checkpointer = MySQLCheckpointSaver(app_config.checkpoint_mysql_dsn)
+                _graph = build_workflow_graph(checkpointer)
+    return _graph
+
+
 class AllCallAllAgentHarness:
     """Run Agent workflows with consistent contracts, trace, and eval projection."""
 
@@ -66,7 +92,7 @@ class AllCallAllAgentHarness:
         try:
             provider = create_provider()
             provider_name = provider.name
-            result = build_workflow_graph().invoke(
+            result = get_workflow_graph().invoke(
                 {
                     "request": request,
                     "provider": provider,

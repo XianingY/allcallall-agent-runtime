@@ -38,7 +38,11 @@ class AgentRuntimeConfig(BaseSettings):
     tool_bridge_max_retries: int = 2
     rag_runtime_max_retries: int = 2
     retry_base_delay_sec: float = 0.5
-    retry_max_delay_sec: float = 4.0
+    retry_max_delay_sec: float = 8.0
+
+    # Durable MySQL checkpoints
+    checkpoint_mysql_enabled: bool = False
+    checkpoint_mysql_dsn: str = ""
 
     # Prompt settings
     prompt_version: str = ""
