@@ -145,6 +145,7 @@ def test_mysql_checkpoint_transaction_detects_stale_namespace() -> None:
         try:
             with saver.checkpoint_transaction(thread_id, execution_id):
                 saver.put(config, _checkpoint(f"cp-{suffix}"), _metadata(), {"summary": f"cp-{suffix}"})
+                saver.put_writes(config, [("summary", f"cp-{suffix}")], "task-1")
                 ready_to_commit.wait(timeout=10)
         except Exception as exc:
             return exc

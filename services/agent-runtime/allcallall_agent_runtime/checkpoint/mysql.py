@@ -349,7 +349,13 @@ class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
                             """,
                             (thread_id, checkpoint_ns, checkpoint_id),
                         )
-                        if cursor.fetchone() is None:
+                        # An empty checkpoint_id denotes a pending write for the
+                        # in-progress (parent-less) checkpoint; LangGraph stores
+                        # these without a backing checkpoint row, so the missing
+                        # row is expected and must not be treated as corruption.
+                        # Only a non-empty id that resolves to nothing is a real
+                        # contract violation.
+                        if checkpoint_id and cursor.fetchone() is None:
                             raise RuntimeError("pending writes reference a missing checkpoint")
 
                     if checkpoints:
