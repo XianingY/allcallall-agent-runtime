@@ -114,6 +114,7 @@ class MeetingBriefRequest(BaseModel):
     tool_policy: ToolPolicy = Field(default_factory=ToolPolicy)
     max_iterations: dict[str, int] = Field(default_factory=dict)
     agentic_rag: AgenticRAGConfig = Field(default_factory=AgenticRAGConfig)
+    model_history: str = ""  # bounded history injected by context compression
 
     @field_validator(
         "messages",

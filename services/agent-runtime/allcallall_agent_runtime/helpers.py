@@ -6,6 +6,8 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from .config import config as app_config
+from .context_compression import ConversationTurn, build_model_history
 from .models import (
     Citation,
     ContextChunk,
@@ -346,13 +348,46 @@ def runtime_subject_id(request: WorkflowRequest) -> str:
     return f"workflow:{request.workflow_run_id}"
 
 
+def build_request_model_history(
+    request: WorkflowRequest,
+    strategy: str | None = None,
+    max_tokens: int | None = None,
+) -> str:
+    """Build a *bounded* ``modelHistory`` from the request's conversation turns.
+
+    Combines ``messages``, ``notes`` and ``meeting_transcripts`` into turns and
+    compresses them with :func:`build_model_history` so a long conversation can
+    never inflate the model context window. Returns "" when there is nothing to
+    compress.
+    """
+    turns: list[ConversationTurn] = []
+    for message in request.messages:
+        turns.append(ConversationTurn(role=f"msg:{message.sender_id}", content=message.body))
+    for note in request.notes:
+        turns.append(ConversationTurn(role=f"note:{note.author_id}", content=note.body))
+    for segment in request.meeting_transcripts:
+        turns.append(ConversationTurn(role=segment.speaker or "speaker", content=segment.text))
+    if not turns:
+        return ""
+    strategy = strategy or app_config.context_compression_strategy
+    max_tokens = max_tokens or app_config.model_history_max_tokens
+    return build_model_history(turns, strategy=strategy, max_tokens=max_tokens)
+
+
 def request_with_runtime_context(state: Mapping[str, Any]) -> WorkflowRequest:
     """Get request with runtime context (reranked or retrieved chunks)."""
     request = WorkflowRequest.model_validate(state["request"])
     chunks = state.get("reranked_context_chunks") or state.get("retrieved_context_chunks")
-    if chunks is None:
-        return request
-    return request.model_copy(update={"context_chunks": chunks})
+    if chunks is not None:
+        request = request.model_copy(update={"context_chunks": chunks})
+    # Opt-in context compression: inject a bounded modelHistory so long
+    # conversations don't blow up the context window. Disabled by default to
+    # preserve legacy behavior.
+    if app_config.enable_context_compression:
+        history = build_request_model_history(request)
+        if history:
+            request = request.model_copy(update={"model_history": history})
+    return request
 
 
 def estimate_retrieval_confidence(request: WorkflowRequest, chunks: list[ContextChunk]) -> float:

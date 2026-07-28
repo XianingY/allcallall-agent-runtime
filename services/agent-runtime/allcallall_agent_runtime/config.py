@@ -58,6 +58,11 @@ class AgentRuntimeConfig(BaseSettings):
     # Bounded-quality-retry budget for the two-tier CheckAgent loop.
     max_quality_retries: int = 1
 
+    # Context compression / hierarchical memory (Module 4)
+    model_history_max_tokens: int = 4000
+    context_compression_strategy: str = "summary"  # "summary" | "full"
+    enable_context_compression: bool = False  # opt-in; off keeps legacy behavior
+
     model_config = {"env_prefix": "PY_AGENT_"}
 
 
