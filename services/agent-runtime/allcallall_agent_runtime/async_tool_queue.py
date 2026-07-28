@@ -26,18 +26,17 @@ Outbox foundation.
 
 from __future__ import annotations
 
-import math
 import time
 import uuid
-from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
 class QueuedTask:
     task_id: str
     tool_name: str
-    payload: dict
+    payload: dict[str, Any]
     idempotency_key: str
     queue_name: str = "default"
     priority: int = 5  # lower number = higher priority
@@ -109,7 +108,7 @@ class AsyncToolQueue:
     def enqueue(
         self,
         tool_name: str,
-        payload: dict,
+        payload: dict[str, Any],
         *,
         idempotency_key: str,
         queue_name: str = "default",
@@ -119,7 +118,8 @@ class AsyncToolQueue:
         execution_mode: str = "async_after_approval",
     ) -> str:
         del execution_mode  # recorded by the caller / proposal; queue only runs approved work
-        existing = self._store.get(self._task_id_for_key(idempotency_key))
+        existing_task_id = self._task_id_for_key(idempotency_key)
+        existing = self._store.get(existing_task_id) if existing_task_id is not None else None
         if existing is not None:
             return existing.task_id  # idempotent: return the original task
         task = QueuedTask(
@@ -157,7 +157,7 @@ class AsyncToolQueue:
         if not eligible:
             return None
         # Traffic shaping: respect per-key concurrency cap.
-        in_flight = {}
+        in_flight: dict[str, int] = {}
         for t in self._store.all():
             if t.status == "processing":
                 in_flight[t.rate_limit_key] = in_flight.get(t.rate_limit_key, 0) + 1

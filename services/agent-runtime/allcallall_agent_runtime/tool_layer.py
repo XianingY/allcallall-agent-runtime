@@ -17,10 +17,26 @@ from .tool_bridge import GoToolBridge, ToolObservation
 
 
 @runtime_checkable
+class ToolBridgeLike(Protocol):
+    """Structural interface every tool bridge (real or stub) must satisfy."""
+
+    def configured(self) -> bool:
+        ...
+
+    def execute_read_tool(
+        self,
+        request: WorkflowRequest,
+        tool_name: str,
+        tool_input: dict[str, Any],
+    ) -> ToolObservation | None:
+        ...
+
+
+@runtime_checkable
 class ToolLayer(Protocol):
     """Produces the tool bridge a workflow run should use."""
 
-    def build(self) -> GoToolBridge:
+    def build(self) -> ToolBridgeLike:
         ...
 
 

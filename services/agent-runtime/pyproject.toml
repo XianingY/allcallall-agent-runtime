@@ -26,7 +26,8 @@ llamaindex = [
 dev = [
   "mypy>=1.10,<2",
   "pytest>=8.2,<9",
-  "ruff>=0.5,<1",
+  "ruff>=0.15,<0.16",
+  "types-PyYAML>=6.0,<7",
 ]
 
 [tool.setuptools.packages.find]

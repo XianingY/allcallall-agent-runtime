@@ -464,6 +464,11 @@
       },
       "agentic_rag": {
         "$ref": "#/$defs/AgenticRAGConfig"
+      },
+      "model_history": {
+        "default": "",
+        "title": "Model History",
+        "type": "string"
       }
     },
     "required": [

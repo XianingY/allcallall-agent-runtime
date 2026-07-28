@@ -8,7 +8,7 @@ lets each layer evolve and be tested independently.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
@@ -26,7 +26,7 @@ class CheckpointStore(Protocol):
 
     kind: str
 
-    def make_checkpointer(self) -> BaseCheckpointSaver | None:
+    def make_checkpointer(self) -> BaseCheckpointSaver[Any] | None:
         """Return a checkpointer, or ``None`` when durability is disabled."""
         ...
 
@@ -36,7 +36,7 @@ class NullCheckpointStore:
 
     kind = "none"
 
-    def make_checkpointer(self) -> BaseCheckpointSaver | None:
+    def make_checkpointer(self) -> BaseCheckpointSaver[Any] | None:
         return None
 
 
@@ -49,9 +49,9 @@ class MySQLCheckpointStore:
         if not dsn.strip():
             raise ValueError("PY_AGENT_CHECKPOINT_MYSQL_DSN is required when MySQL checkpoints are enabled")
         self._dsn = dsn
-        self._checkpointer: BaseCheckpointSaver | None = None
+        self._checkpointer: BaseCheckpointSaver[Any] | None = None
 
-    def make_checkpointer(self) -> BaseCheckpointSaver | None:
+    def make_checkpointer(self) -> BaseCheckpointSaver[Any] | None:
         if self._checkpointer is None:
             self._checkpointer = MySQLCheckpointSaver(self._dsn)
         return self._checkpointer
@@ -64,9 +64,9 @@ class SQLiteCheckpointStore:
 
     def __init__(self, path: str = ":memory:") -> None:
         self._path = path
-        self._checkpointer: BaseCheckpointSaver | None = None
+        self._checkpointer: BaseCheckpointSaver[Any] | None = None
 
-    def make_checkpointer(self) -> BaseCheckpointSaver | None:
+    def make_checkpointer(self) -> BaseCheckpointSaver[Any] | None:
         if self._checkpointer is None:
             self._checkpointer = SQLiteCheckpointSaver(self._path)
         return self._checkpointer
@@ -78,9 +78,9 @@ class MemoryCheckpointStore:
     kind = "memory"
 
     def __init__(self) -> None:
-        self._checkpointer: BaseCheckpointSaver | None = None
+        self._checkpointer: BaseCheckpointSaver[Any] | None = None
 
-    def make_checkpointer(self) -> BaseCheckpointSaver | None:
+    def make_checkpointer(self) -> BaseCheckpointSaver[Any] | None:
         if self._checkpointer is None:
             self._checkpointer = MemoryCheckpointSaver()
         return self._checkpointer

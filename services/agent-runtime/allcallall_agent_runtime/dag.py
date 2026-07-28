@@ -27,7 +27,7 @@ from .nodes import (
     searcher,
     synthesize,
 )
-from .nodes.check import route_quality, route_safety
+from .nodes.check import route_quality
 from .nodes.retrieval import build_evidence_pack, grounding_check, merge, sufficiency_gate
 
 

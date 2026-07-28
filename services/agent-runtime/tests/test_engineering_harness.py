@@ -20,21 +20,21 @@ from allcallall_agent_runtime.models import MeetingBriefRequest
 
 # --- pure IR metric unit tests -------------------------------------------- #
 
-def test_hit_rate_at_k_present():
+def test_hit_rate_at_k_present() -> None:
     assert hit_rate_at_k(["a", "b", "c"], ["a"], 2) == 1.0
     assert hit_rate_at_k(["x", "y"], ["z"], 2) == 0.0
     assert hit_rate_at_k(["x", "a"], ["a"], 2) == 1.0
     assert hit_rate_at_k(["a", "b"], [], 2) == 0.0
 
 
-def test_mrr_exact():
+def test_mrr_exact() -> None:
     assert mean_reciprocal_rank(["b", "a", "c"], ["a"]) == 0.5
     assert mean_reciprocal_rank(["a"], ["a"]) == 1.0
     assert mean_reciprocal_rank(["x", "y"], ["a"]) == 0.0
     assert mean_reciprocal_rank(["a", "b"], ["a", "b"]) == 1.0  # first hit rank 1
 
 
-def test_ndcg_at_k_exact():
+def test_ndcg_at_k_exact() -> None:
     # Single relevant at rank 1 -> DCG=1/log2(2)=1, IDCG=1 -> 1.0
     assert ndcg_at_k(["a", "b"], ["a"], 2) == 1.0
     # Relevant absent from top-k -> DCG=0
@@ -79,7 +79,7 @@ def _build_target_fixture() -> list[RagEvalCase]:
     return cases
 
 
-def test_rag_eval_hits_quality_bar():
+def test_rag_eval_hits_quality_bar() -> None:
     cases = _build_target_fixture()
     result = RagEvalHarness().evaluate(cases, k=5)
     assert result.total == 120
@@ -101,7 +101,7 @@ def _sample_request() -> MeetingBriefRequest:
     )
 
 
-def test_engineering_harness_runs_reproducibly():
+def test_engineering_harness_runs_reproducibly() -> None:
     env = EngineeringHarness()
     resp = env.run_workflow(_sample_request())
     # The run is deterministic given the RulesProvider + stub tools.

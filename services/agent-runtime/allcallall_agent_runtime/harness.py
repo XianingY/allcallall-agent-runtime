@@ -8,6 +8,7 @@ from typing import Any
 
 from .config import config as app_config
 from .checkpoint.store import (
+    CheckpointStore,
     MemoryCheckpointStore,
     MySQLCheckpointStore,
     NullCheckpointStore,
@@ -44,7 +45,6 @@ from .models import (
 )
 from .prompts import prompt_version_for
 from .providers import ProviderError, create_provider
-from .tool_bridge import GoToolBridge
 
 
 _graph: Any | None = None
@@ -97,11 +97,7 @@ class AllCallAllAgentHarness:
     def __init__(
         self,
         *,
-        checkpoint_store: NullCheckpointStore
-        | MySQLCheckpointStore
-        | SQLiteCheckpointStore
-        | MemoryCheckpointStore
-        | None = None,
+        checkpoint_store: CheckpointStore | None = None,
         tool_layer: ToolLayer | None = None,
         provider: LLMProvider | None = None,
     ) -> None:

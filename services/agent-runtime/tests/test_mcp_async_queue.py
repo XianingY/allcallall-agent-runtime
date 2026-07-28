@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from allcallall_agent_runtime.async_tool_queue import AsyncToolQueue, InMemoryTaskStore
+from allcallall_agent_runtime.async_tool_queue import AsyncToolQueue
 from allcallall_agent_runtime.mcp_tools import (
     EXEC_ASYNC,
     READ,
@@ -10,14 +10,13 @@ from allcallall_agent_runtime.mcp_tools import (
     MARKDOWN_WRITE,
     MEETING_TRANSCRIBE,
     QUERY_CONTEXT,
-    MCPToolRegistry,
     default_registry,
 )
 
 
 # --- MCP tool wrapping --------------------------------------------------- #
 
-def test_mcp_tool_classification():
+def test_mcp_tool_classification() -> None:
     assert QUERY_CONTEXT.kind == READ
     assert QUERY_CONTEXT.execution_mode == "sync"
     assert MARKDOWN_WRITE.kind == WRITE
@@ -26,14 +25,14 @@ def test_mcp_tool_classification():
     assert MEETING_TRANSCRIBE.execution_mode == EXEC_ASYNC
 
 
-def test_mcp_tool_to_mcp_shape():
+def test_mcp_tool_to_mcp_shape() -> None:
     entry = QUERY_CONTEXT.to_mcp()
     assert entry["name"] == "query_context_chunks"
     assert entry["inputSchema"]["type"] == "object"
     assert entry["annotations"]["kind"] == READ
 
 
-def test_registry_splits_read_write():
+def test_registry_splits_read_write() -> None:
     reg = default_registry()
     names = {t["name"] for t in reg.tool_list()}
     assert {"query_context_chunks", "write_markdown_document", "transcribe_meeting_recording"} <= names
@@ -43,7 +42,7 @@ def test_registry_splits_read_write():
 
 # --- async queue: idempotent creation ------------------------------------ #
 
-def test_enqueue_is_idempotent():
+def test_enqueue_is_idempotent() -> None:
     q = AsyncToolQueue()
     t1 = q.enqueue("write_markdown_document", {"title": "x"}, idempotency_key="k1")
     t2 = q.enqueue("write_markdown_document", {"title": "y"}, idempotency_key="k1")
@@ -52,7 +51,7 @@ def test_enqueue_is_idempotent():
 
 # --- async queue: lease + completion ------------------------------------- #
 
-def test_claim_grants_lease_and_completes():
+def test_claim_grants_lease_and_completes() -> None:
     q = AsyncToolQueue()
     tid = q.enqueue("write_markdown_document", {}, idempotency_key="k1")
     task = q.claim("worker-1")
@@ -63,7 +62,7 @@ def test_claim_grants_lease_and_completes():
     assert q.claim("worker-2") is None  # nothing left
 
 
-def test_expired_lease_is_reclaimable():
+def test_expired_lease_is_reclaimable() -> None:
     q = AsyncToolQueue()
     tid = q.enqueue("write_markdown_document", {}, idempotency_key="k1")
     q.claim("worker-1", now=100.0, visibility_timeout=10.0)
@@ -75,7 +74,7 @@ def test_expired_lease_is_reclaimable():
 
 # --- async queue: traffic shaping (rate limit) --------------------------- #
 
-def test_rate_limit_throttles_concurrent_per_key():
+def test_rate_limit_throttles_concurrent_per_key() -> None:
     q = AsyncToolQueue(rate_limit_max=1)
     q.enqueue("write_markdown_document", {}, idempotency_key="a", rate_limit_key="doc")
     q.enqueue("write_markdown_document", {}, idempotency_key="b", rate_limit_key="doc")
@@ -92,10 +91,11 @@ def test_rate_limit_throttles_concurrent_per_key():
 
 # --- async queue: retry with backoff + DLQ ------------------------------- #
 
-def test_failure_retries_then_dead_letters():
+def test_failure_retries_then_dead_letters() -> None:
     q = AsyncToolQueue(base_backoff_sec=1.0)
     tid = q.enqueue("write_markdown_document", {}, idempotency_key="k1", max_attempts=2)
     t0 = q.claim("w")
+    assert t0 is not None
     q.fail(t0.task_id, "boom", now=0.0)
     # Re-queued with backoff; not claimable until scheduled_at.
     assert q.claim("w", now=0.0) is None
@@ -108,9 +108,10 @@ def test_failure_retries_then_dead_letters():
     assert len(dead) == 1 and dead[0].task_id == tid and dead[0].status == "dead"
 
 
-def test_priority_ordering():
+def test_priority_ordering() -> None:
     q = AsyncToolQueue()
     q.enqueue("write_markdown_document", {}, idempotency_key="low", priority=9)
     q.enqueue("write_markdown_document", {}, idempotency_key="high", priority=1)
     claimed = q.claim("w")
+    assert claimed is not None
     assert claimed.idempotency_key == "high"  # lower number = higher priority

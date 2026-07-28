@@ -13,7 +13,6 @@ from allcallall_agent_runtime.skill_registry import (
     Skill,
     SkillRegistry,
     parse_skill_md,
-    sha256_text,
 )
 
 SAMPLE_MD = textwrap.dedent(
@@ -29,7 +28,7 @@ SAMPLE_MD = textwrap.dedent(
 ).strip()
 
 
-def test_parse_skill_md_frontmatter():
+def test_parse_skill_md_frontmatter() -> None:
     skill = parse_skill_md(SAMPLE_MD)
     assert skill.name == "meeting_recap"
     assert skill.risk_level == RISK_LOW
@@ -38,7 +37,7 @@ def test_parse_skill_md_frontmatter():
     assert skill.instruction_sha256  # snapshot computed
 
 
-def test_snapshot_is_stable_and_tamper_evident():
+def test_snapshot_is_stable_and_tamper_evident() -> None:
     a = parse_skill_md(SAMPLE_MD)
     b = parse_skill_md(SAMPLE_MD)
     assert a.instruction_sha256 == b.instruction_sha256
@@ -48,14 +47,14 @@ def test_snapshot_is_stable_and_tamper_evident():
     assert c.instruction_sha256 != a.instruction_sha256
 
 
-def test_register_and_get():
+def test_register_and_get() -> None:
     reg = SkillRegistry()
     reg.register(Skill(name="x", instructions="do thing", tools=["t1"]))
     assert reg.get("x") is not None
     assert reg.get("missing") is None
 
 
-def test_resolve_low_risk_no_approval():
+def test_resolve_low_risk_no_approval() -> None:
     reg = SkillRegistry()
     reg.register(parse_skill_md(SAMPLE_MD))
     resolved = reg.resolve("meeting_recap")
@@ -65,7 +64,7 @@ def test_resolve_low_risk_no_approval():
     assert "SECURITY PLAN" not in resolved.system_instructions
 
 
-def test_resolve_high_risk_applies_security_overlay():
+def test_resolve_high_risk_applies_security_overlay() -> None:
     high_md = textwrap.dedent(
         """
         ---
@@ -86,13 +85,13 @@ def test_resolve_high_risk_applies_security_overlay():
     assert "Write follow-ups on behalf of the user." in resolved.system_instructions
 
 
-def test_resolve_unknown_raises():
+def test_resolve_unknown_raises() -> None:
     import pytest
     with pytest.raises(KeyError):
         SkillRegistry().resolve("nope")
 
 
-def test_load_from_file_and_directory(tmp_path: Path):
+def test_load_from_file_and_directory(tmp_path: Path) -> None:
     skill_a = tmp_path / "a.md"
     skill_a.write_text(SAMPLE_MD, encoding="utf-8")
     skill_b = tmp_path / "b.md"

@@ -23,12 +23,14 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
     get_checkpoint_metadata,
 )
+from collections.abc import AsyncIterator
+
 import anyio
 
 from .mysql import checkpoint_safe_config, optional_int
 
 
-class SQLiteCheckpointSaver(BaseCheckpointSaver):
+class SQLiteCheckpointSaver(BaseCheckpointSaver[int]):
     """Single-connection SQLite checkpoint saver.
 
     A single shared connection is required because every ``sqlite3.connect(":memory:")``
@@ -372,7 +374,7 @@ class SQLiteCheckpointSaver(BaseCheckpointSaver):
         filter: dict[str, Any] | None = None,
         before: RunnableConfig | None = None,
         limit: int | None = None,
-    ):
+    ) -> AsyncIterator[CheckpointTuple]:
         items = await anyio.to_thread.run_sync(
             lambda: list(self.list(config, filter=filter, before=before, limit=limit))
         )

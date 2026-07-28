@@ -15,6 +15,8 @@ examples: Markdown export and meeting transcription.
 
 from __future__ import annotations
 
+from typing import Any
+
 from dataclasses import dataclass, field
 
 READ = "read"
@@ -28,11 +30,11 @@ class MCPTool:
     name: str
     title: str
     description: str
-    input_schema: dict
+    input_schema: dict[str, Any]
     kind: str = READ
     execution_mode: str = EXEC_SYNC
 
-    def to_mcp(self) -> dict:
+    def to_mcp(self) -> dict[str, Any]:
         """Serialize to the MCP ``tools/list`` entry shape."""
         return {
             "name": self.name,
@@ -52,7 +54,7 @@ class MCPToolRegistry:
     def get(self, name: str) -> MCPTool | None:
         return self._tools.get(name)
 
-    def tool_list(self) -> list[dict]:
+    def tool_list(self) -> list[dict[str, Any]]:
         return [t.to_mcp() for t in self._tools.values()]
 
     def read_tools(self) -> list[MCPTool]:

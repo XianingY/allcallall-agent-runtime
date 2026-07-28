@@ -8,8 +8,11 @@ bounded loop-back to ``synthesize``.
 
 from __future__ import annotations
 
+from typing import cast
+
 from allcallall_agent_runtime.dag import build_workflow_graph
 from allcallall_agent_runtime.models import CriticResult, ToolProposal
+from allcallall_agent_runtime.state import GraphState
 from allcallall_agent_runtime.nodes.check import (
     CheckDecision,
     quality_check,
@@ -29,80 +32,80 @@ def _critic(passed: bool, issues: list[str], context_sufficient: bool, coverage:
     )
 
 
-def test_quality_pass_when_critic_ok():
+def test_quality_pass_when_critic_ok() -> None:
     state = {"critic_result": _critic(True, [], True, 0.8)}
-    out = quality_check(state)
+    out = quality_check(cast(GraphState, state))
     assert out["last_check_decision"] == CheckDecision.PASS.value
 
 
-def test_quality_revise_on_insufficient_context():
+def test_quality_revise_on_insufficient_context() -> None:
     state = {
         "critic_result": _critic(False, ["insufficient_context_guarded"], False),
         "critic_retries": 0,
     }
-    out = quality_check(state)
+    out = quality_check(cast(GraphState, state))
     assert out["last_check_decision"] == CheckDecision.REVISE.value
     # Loop counter advanced so the loop is bounded.
     assert out["critic_retries"] == 1
 
 
-def test_quality_escalate_on_grounding_failure():
+def test_quality_escalate_on_grounding_failure() -> None:
     state = {"critic_result": _critic(False, ["grounding_failed"], True)}
-    out = quality_check(state)
+    out = quality_check(cast(GraphState, state))
     assert out["last_check_decision"] == CheckDecision.ESCALATE.value
 
 
-def test_quality_revise_on_generic_quality_issue():
+def test_quality_revise_on_generic_quality_issue() -> None:
     state = {"critic_result": _critic(False, ["citation_coverage_missing"], True), "critic_retries": 0}
-    out = quality_check(state)
+    out = quality_check(cast(GraphState, state))
     assert out["last_check_decision"] == CheckDecision.REVISE.value
 
 
-def test_quality_budget_exhausted_accepts_draft():
+def test_quality_budget_exhausted_accepts_draft() -> None:
     # Default max_quality_retries = 1, so retries==1 already exhausts the budget.
     state = {
         "critic_result": _critic(False, ["insufficient_context_guarded"], False),
         "critic_retries": 1,
     }
-    out = quality_check(state)
+    out = quality_check(cast(GraphState, state))
     assert out["last_check_decision"] == CheckDecision.PASS.value
 
 
-def test_safety_pass_when_all_writes_gated_and_no_risk():
+def test_safety_pass_when_all_writes_gated_and_no_risk() -> None:
     state = {
         "proposed_tool_calls": [ToolProposal(approval_required=True, tool_name="x", arguments={})],
         "risk_flags": [],
     }
-    out = safety_check(state)
+    out = safety_check(cast(GraphState, state))
     assert out["last_check_decision"] == CheckDecision.PASS.value
 
 
-def test_safety_escalate_on_ungated_write():
+def test_safety_escalate_on_ungated_write() -> None:
     state = {
         "proposed_tool_calls": [ToolProposal(approval_required=False, tool_name="x", arguments={})],
         "risk_flags": [],
     }
-    out = safety_check(state)
+    out = safety_check(cast(GraphState, state))
     assert out["last_check_decision"] == CheckDecision.ESCALATE.value
 
 
-def test_safety_escalate_on_risk_flags():
+def test_safety_escalate_on_risk_flags() -> None:
     state = {"proposed_tool_calls": [], "risk_flags": ["privacy_leak"]}
-    out = safety_check(state)
+    out = safety_check(cast(GraphState, state))
     assert out["last_check_decision"] == CheckDecision.ESCALATE.value
 
 
-def test_route_quality_revise_loops_to_synthesize():
+def test_route_quality_revise_loops_to_synthesize() -> None:
     assert route_quality({"last_check_decision": CheckDecision.REVISE.value}) == "revise"
     assert route_quality({"last_check_decision": CheckDecision.PASS.value}) == "safety"
     assert route_quality({"last_check_decision": CheckDecision.ESCALATE.value}) == "safety"
 
 
-def test_route_safety_always_advances_to_approval():
+def test_route_safety_always_advances_to_approval() -> None:
     assert route_safety({}) == "approve"
 
 
-def test_graph_wires_check_agents_and_loop_edge():
+def test_graph_wires_check_agents_and_loop_edge() -> None:
     # Compilation itself validates the conditional path_map targets exist.
     g = build_workflow_graph()
     graph = g.get_graph()
