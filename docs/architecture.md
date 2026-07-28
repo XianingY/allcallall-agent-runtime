@@ -39,6 +39,12 @@ Each run follows a bounded, auditable harness:
 
 The graph keeps deterministic rule fallbacks so local evals do not require live LLM, vector DB, or Go backend access.
 
+Internally the harness is decoupled into three layers — scheduling, persistence
+(`CheckpointStore`), and tool (`ToolLayer`) — see
+`docs/harness-architecture.md`. Answer quality is bounded by a two-tier
+CheckAgent loop (`docs/check-agents.md`), and request context can be compressed
+into a token-bounded model history (`docs/context-compression.md`).
+
 ## Adaptive RAG
 
 - `chat`: starts from scoped conversation, message, note, follow-up, and memory context.

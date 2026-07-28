@@ -34,6 +34,18 @@ Current bounded roles:
 | follow_up_planner | 2 | proposal only | extract action items and propose follow-up tasks |
 | supervisor | 0 | no | route, merge, critic, and stop decision |
 
+## Quality/Safety Check Loop
+
+After `critic_check`, a two-tier CheckAgent loop bounds answer quality at the
+workflow level (independent of the per-role loop budgets above):
+
+- L1 `quality_check` emits `pass` / `revise` / `escalate`; `revise` loops back
+  to `synthesize` within the `PY_AGENT_MAX_QUALITY_RETRIES` budget.
+- L2 `safety_check` verifies the approval-only write boundary before the
+  approval gate.
+
+Details: `docs/check-agents.md`.
+
 ## Safety Boundary
 
 Read tools can run automatically through the Go Tool Bridge. Write tools are never executed by Python. Python returns `ToolProposal` objects; Go validates schema, creates approvals, audits decisions, and executes accepted writes.

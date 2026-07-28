@@ -87,4 +87,23 @@ make agent-eval
 make rag-eval
 ```
 
-The eval suite is deterministic regression evidence for task completion, citation grounding, approval safety, retrieval refinement, rerank, and insufficient-context handling. It is not an open-domain model-quality benchmark.
+The eval suite is deterministic regression evidence for task completion, citation grounding, approval safety, retrieval refinement, rerank, and insufficient-context handling. It is not an open-domain model-quality benchmark. IR-metric anchors: `HitRate@5 = 0.9667`, `MRR = 0.9083` (see `docs/engineering-harness.md`).
+
+## Documentation
+
+Full index: [`INDEX.md`](INDEX.md). Key documents:
+
+| Document | Content |
+| --- | --- |
+| [`docs/architecture.md`](docs/architecture.md) | System architecture, workflows, safety model. |
+| [`docs/harness-architecture.md`](docs/harness-architecture.md) | Three-layer harness decoupling (scheduling / persistence / tool). |
+| [`docs/loop-engineering.md`](docs/loop-engineering.md) | Bounded role loops and the loop contract. |
+| [`docs/check-agents.md`](docs/check-agents.md) | Two-tier CheckAgent quality/safety loop. |
+| [`docs/context-compression.md`](docs/context-compression.md) | Hierarchical memory and token-bounded model history. |
+| [`docs/skill-registry.md`](docs/skill-registry.md) | Skill catalog + dynamic registry with SecurityOverlay. |
+| [`docs/mcp-tools-async-queue.md`](docs/mcp-tools-async-queue.md) | MCP tool descriptors and async tool queue semantics. |
+| [`docs/engineering-harness.md`](docs/engineering-harness.md) | Deterministic engineering harness and IR metrics. |
+| [`docs/eval-methodology.md`](docs/eval-methodology.md) | Eval scope and current evidence. |
+| [`docs/configuration.md`](docs/configuration.md) | Full environment variable reference. |
+| [`docs/tool-bridge-protocol.md`](docs/tool-bridge-protocol.md) | Go Tool Bridge HTTP protocol. |
+| [`docs/allcallall-integration.md`](docs/allcallall-integration.md) | Cross-service wiring with the Go backend. |

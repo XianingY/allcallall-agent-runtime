@@ -21,6 +21,16 @@ pip install -e ".[dev]"
 uvicorn allcallall_rag_runtime.main:app --reload --port 8091
 ```
 
+## Configuration
+
+All settings use the `PY_RAG_` prefix (`allcallall_rag_runtime/config.py`).
+Key variables: `PY_RAG_TOOL_BRIDGE_BASE_URL` / `PY_RAG_TOOL_BRIDGE_TOKEN`
+(Go retrieval bridge), `PY_RAG_TOP_K`, `PY_RAG_MAX_STEPS`,
+`PY_RAG_MIN_CONFIDENCE`, `PY_RAG_ENABLE_GRAPH_EXPANSION`, and the optional
+Qdrant adapter (`PY_RAG_VECTOR_STORE=qdrant`, `PY_RAG_QDRANT_*`).
+
+Full reference: `../../docs/configuration.md`.
+
 ## API
 
 - `GET /health`

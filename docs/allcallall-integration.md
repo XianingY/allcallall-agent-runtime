@@ -29,5 +29,10 @@ PY_RAG_TOOL_BRIDGE_BASE_URL=http://backend:8080
 PY_RAG_TOOL_BRIDGE_TOKEN=<shared-token>
 ```
 
-For local development inside the AllCallAll monorepo, use `examples/allcallall-compose.override.yml` from this repository as the compose override.
+For local development inside the AllCallAll monorepo, use `examples/allcallall-compose.override.yml` from this repository as the compose override. The main repo expects this repository as a sibling directory: `../allcallall-agent-runtime`.
+
+The snippets above are the minimal cross-service wiring. The full variable
+reference (including checkpointing, quality-loop, and context-compression
+settings) lives in `docs/configuration.md`; the Go backend's own variables are
+documented in the main repo's `docs/configuration/configuration.md`.
 

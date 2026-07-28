@@ -53,6 +53,11 @@ PY_AGENT_RUNTIME_STRICT=true
 - `PY_AGENT_ENABLE_AGENTIC_RAG=false`: enable bounded Agentic RAG retrieval planning and refinement.
 - `PY_AGENT_RAG_MAX_RETRIEVAL_STEPS=3`: hard cap for Agentic RAG read-tool retrieval attempts.
 - `PY_AGENT_RAG_MIN_CONFIDENCE=0.6`: confidence threshold for stopping retrieval refinement.
+- `PY_AGENT_CHECKPOINT_STORE=none|mysql|sqlite|memory`: pluggable LangGraph checkpoint persistence (see `../../docs/harness-architecture.md`).
+- `PY_AGENT_MAX_QUALITY_RETRIES=1`: L1 quality-check revise budget in the two-tier CheckAgent loop (see `../../docs/check-agents.md`).
+- `PY_AGENT_ENABLE_CONTEXT_COMPRESSION=false`: opt-in token-bounded model history (see `../../docs/context-compression.md`).
+
+Full variable reference with defaults: `../../docs/configuration.md`.
 
 If the tool bridge is not configured, the runtime still uses context preloaded by Go. This keeps deterministic local evals independent from a running backend.
 

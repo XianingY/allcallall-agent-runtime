@@ -31,6 +31,14 @@ Current deterministic evidence:
 - Agent runtime: 9/9 fixtures pass across meeting brief, risk review, follow-up planning, context QA, approval safety, memory upsert proposals, and unsupported-claim guarding.
 - RAG runtime: 3/3 fixtures pass with 100% route match and graph expansion success on graph-required cases.
 
+IR-metric regression anchors (`engineering_harness.py`, 120-case fixture in
+`tests/test_engineering_harness.py`; metrics mirrored from the Go evaluator
+so both stacks report comparable numbers — see
+`docs/engineering-harness.md`):
+
+- `HitRate@5 = 0.9667`
+- `MRR = 0.9083`
+
 Portfolio report:
 
 - `docs/generated-ai-agent-portfolio-eval/portfolio-eval.json`
