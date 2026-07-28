@@ -7,9 +7,16 @@ from threading import Lock
 from typing import Any
 
 from .config import config as app_config
-from .checkpoint import MySQLCheckpointSaver
+from .checkpoint.store import (
+    MemoryCheckpointStore,
+    MySQLCheckpointStore,
+    NullCheckpointStore,
+    SQLiteCheckpointStore,
+)
 from .dag import build_workflow_graph
 from .helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
+from .providers.base import LLMProvider
+from .tool_layer import GoToolBridgeLayer, ToolLayer
 from .models import (
     AgentHarnessMetadata,
     AgentRunRequest,
@@ -42,33 +49,75 @@ from .tool_bridge import GoToolBridge
 
 _graph: Any | None = None
 _graph_lock = Lock()
+_default_harness: AllCallAllAgentHarness | None = None
+_default_harness_lock = Lock()
 
 
 def get_workflow_graph() -> Any:
-    """Return a process-wide compiled workflow graph.
+    """Return a process-wide compiled workflow graph (production defaults).
 
-    Mirrors the legacy in-tree runtime: when ``PY_AGENT_CHECKPOINT_MYSQL_ENABLED``
-    is set, a ``MySQLCheckpointSaver`` is attached so workflow runs are durable
-    and resumable across restarts; otherwise an in-memory graph is used.
+    Kept for backward compatibility. New code should construct an
+    :class:`AllCallAllAgentHarness` (optionally via
+    :func:`allcallall_agent_runtime.factory.build_agent_harness`) so the
+    checkpoint store, tool layer, and provider can be injected and tested
+    independently.
     """
-    global _graph
-    if _graph is None:
-        with _graph_lock:
-            if _graph is None:
-                checkpointer = None
-                if app_config.checkpoint_mysql_enabled:
-                    if not app_config.checkpoint_mysql_dsn.strip():
-                        raise ValueError("PY_AGENT_CHECKPOINT_MYSQL_DSN is required when MySQL checkpoints are enabled")
-                    checkpointer = MySQLCheckpointSaver(app_config.checkpoint_mysql_dsn)
-                _graph = build_workflow_graph(checkpointer)
-    return _graph
+    global _default_harness
+    if _default_harness is None:
+        with _default_harness_lock:
+            if _default_harness is None:
+                _default_harness = AllCallAllAgentHarness()
+    return _default_harness._get_graph()
+
+
+def _default_checkpoint_store() -> NullCheckpointStore | MySQLCheckpointStore | SQLiteCheckpointStore | MemoryCheckpointStore:
+    store = (app_config.checkpoint_store or "").strip().lower()
+    if store == "mysql" or (not store and app_config.checkpoint_mysql_enabled):
+        return MySQLCheckpointStore(app_config.checkpoint_mysql_dsn)
+    if store == "sqlite":
+        return SQLiteCheckpointStore(app_config.checkpoint_sqlite_path or ":memory:")
+    if store == "memory":
+        return MemoryCheckpointStore()
+    return NullCheckpointStore()
 
 
 class AllCallAllAgentHarness:
-    """Run Agent workflows with consistent contracts, trace, and eval projection."""
+    """Run Agent workflows with consistent contracts, trace, and eval projection.
+
+    The three concerns that previously lived inline in this class — workflow
+    scheduling, durable checkpoint persistence, and tool execution — are now
+    injected dependencies (``checkpoint_store``, ``tool_layer``, ``provider``).
+    Each can be swapped or mocked without editing the orchestration logic, which
+    is what lets the layers evolve and be tested independently.
+    """
 
     name = "allcallall_v1"
     graph_name = "supervisor_workflow_with_bounded_loops"
+
+    def __init__(
+        self,
+        *,
+        checkpoint_store: NullCheckpointStore
+        | MySQLCheckpointStore
+        | SQLiteCheckpointStore
+        | MemoryCheckpointStore
+        | None = None,
+        tool_layer: ToolLayer | None = None,
+        provider: LLMProvider | None = None,
+    ) -> None:
+        self.checkpoint_store = checkpoint_store or _default_checkpoint_store()
+        self.tool_layer = tool_layer or GoToolBridgeLayer()
+        self._provider = provider
+        self._graph: Any | None = None
+        self._graph_lock = Lock()
+
+    def _get_graph(self) -> Any:
+        if self._graph is None:
+            with self._graph_lock:
+                if self._graph is None:
+                    checkpointer = self.checkpoint_store.make_checkpointer()
+                    self._graph = build_workflow_graph(checkpointer)
+        return self._graph
 
     def run_meeting_brief(self, request: MeetingBriefRequest) -> MeetingBriefResponse:
         return self.run_workflow(request.model_copy(update={"preset": "meeting_brief"}))
@@ -90,13 +139,13 @@ class AllCallAllAgentHarness:
         request = request.model_copy(update={"preset": preset})
         provider_name = app_config.provider or "rules"
         try:
-            provider = create_provider()
+            provider = self._provider or create_provider()
             provider_name = provider.name
-            result = get_workflow_graph().invoke(
+            result = self._get_graph().invoke(
                 {
                     "request": request,
                     "provider": provider,
-                    "tool_bridge": GoToolBridge(),
+                    "tool_bridge": self.tool_layer.build(),
                     "trace_events": [],
                     "role_results": [],
                 }

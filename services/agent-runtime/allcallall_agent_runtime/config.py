@@ -40,9 +40,11 @@ class AgentRuntimeConfig(BaseSettings):
     retry_base_delay_sec: float = 0.5
     retry_max_delay_sec: float = 8.0
 
-    # Durable MySQL checkpoints
+    # Durable checkpoints (backend selection; decoupled from the harness)
+    checkpoint_store: str = ""  # "" (auto) | "none" | "mysql" | "sqlite" | "memory"
     checkpoint_mysql_enabled: bool = False
     checkpoint_mysql_dsn: str = ""
+    checkpoint_sqlite_path: str = ":memory:"  # file path or ":memory:" for reproducible test envs
 
     # Prompt settings
     prompt_version: str = ""
