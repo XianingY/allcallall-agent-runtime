@@ -141,6 +141,10 @@ class AllCallAllAgentHarness:
         try:
             provider = self._provider or create_provider()
             provider_name = provider.name
+            # LangGraph requires a thread_id whenever a checkpointer is attached
+            # (SQLite/MySQL). Derive it from the request so runs are durable and
+            # resumable, and stable across retries of the same workflow run.
+            run_config = {"configurable": {"thread_id": f"aca-{request.workflow_run_id}"}}
             result = self._get_graph().invoke(
                 {
                     "request": request,
@@ -148,7 +152,8 @@ class AllCallAllAgentHarness:
                     "tool_bridge": self.tool_layer.build(),
                     "trace_events": [],
                     "role_results": [],
-                }
+                },
+                config=run_config,
             )
         except ProviderError as exc:
             return self._failure_response(

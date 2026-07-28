@@ -218,7 +218,9 @@ class SQLiteCheckpointSaver(BaseCheckpointSaver):
         checkpoint_ns = str(configurable.get("checkpoint_ns", ""))
         checkpoint_id = str(checkpoint["id"])
         parent_checkpoint_id = str(configurable.get("checkpoint_id", ""))
-        checkpoint_type, checkpoint_blob = self.serde.dumps_typed(checkpoint)
+        checkpoint_type, checkpoint_blob = self.serde.dumps_typed(
+            self._drop_unserializable_channels(checkpoint)
+        )
         metadata_type, metadata_blob = self.serde.dumps_typed(
             get_checkpoint_metadata(checkpoint_safe_config(config), metadata)
         )
@@ -281,6 +283,24 @@ class SQLiteCheckpointSaver(BaseCheckpointSaver):
             }
         }
 
+    def _drop_unserializable_channels(self, checkpoint: Checkpoint) -> Checkpoint:
+        """Replace channels that cannot be serialized (e.g. live ``provider`` /
+        ``tool_bridge`` objects injected per-run) with ``None`` before
+        persistence. They are re-injected by the harness on every invoke, so
+        dropping them from the durable checkpoint is safe and avoids forcing
+        every transient dependency into the serde."""
+        channel_values = dict(checkpoint.get("channel_values", {}))
+        dirty = False
+        for key, value in list(channel_values.items()):
+            try:
+                self.serde.dumps_typed({"__probe__": value})
+            except Exception:
+                channel_values[key] = None
+                dirty = True
+        if not dirty:
+            return checkpoint
+        return {**checkpoint, "channel_values": channel_values}
+
     def put_writes(
         self,
         config: RunnableConfig,
@@ -294,7 +314,12 @@ class SQLiteCheckpointSaver(BaseCheckpointSaver):
         checkpoint_id = str(configurable["checkpoint_id"])
         records: list[tuple[Any, ...]] = []
         for index, (channel, value) in enumerate(writes):
-            value_type, value_blob = self.serde.dumps_typed(value)
+            try:
+                value_type, value_blob = self.serde.dumps_typed(value)
+            except Exception:
+                # Non-serializable transient (e.g. the per-run provider/tool_bridge
+                # object captured as a write) is dropped; the harness re-injects it.
+                value_type, value_blob = self.serde.dumps_typed(None)
             records.append(
                 (
                     thread_id,
