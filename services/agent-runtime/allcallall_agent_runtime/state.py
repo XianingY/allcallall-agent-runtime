@@ -56,3 +56,7 @@ class GraphState(TypedDict, total=False):
     prompt_version: str
     grounding_check_result: dict[str, Any]
     critic_result: CriticResult
+    # Two-tier CheckAgent loop engineering (quality_check L1 / safety_check L2)
+    critic_retries: int
+    last_check_decision: str
+    check_log: list[dict[str, Any]]

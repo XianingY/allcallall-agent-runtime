@@ -55,6 +55,8 @@ class AgentRuntimeConfig(BaseSettings):
     loop_max_steps: int = 5
     enable_critic: bool = True
     enable_memory_reflection: bool = True
+    # Bounded-quality-retry budget for the two-tier CheckAgent loop.
+    max_quality_retries: int = 1
 
     model_config = {"env_prefix": "PY_AGENT_"}
 

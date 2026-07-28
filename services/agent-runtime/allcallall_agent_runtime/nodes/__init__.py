@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .approval import approval_gate, finalize, propose_tools
+from .check import quality_check, route_quality, route_safety, safety_check
 from .context import collect_context, retrieval_planner
 from .retrieval import critic_check, rerank_context, retrieve_context, retrieval_loop
 from .synthesis import decompose, memory_agent, reflect_and_plan_memory, risk_analyst, searcher, synthesize
@@ -14,6 +15,10 @@ __all__ = [
     "retrieve_context",
     "rerank_context",
     "critic_check",
+    "quality_check",
+    "safety_check",
+    "route_quality",
+    "route_safety",
     "decompose",
     "searcher",
     "memory_agent",

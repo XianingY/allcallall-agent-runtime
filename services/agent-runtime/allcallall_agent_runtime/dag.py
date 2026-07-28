@@ -16,15 +16,18 @@ from .nodes import (
     finalize,
     memory_agent,
     propose_tools,
+    quality_check,
     reflect_and_plan_memory,
     retrieval_planner,
     retrieval_loop,
     retrieve_context,
     rerank_context,
     risk_analyst,
+    safety_check,
     searcher,
     synthesize,
 )
+from .nodes.check import route_quality, route_safety
 from .nodes.retrieval import build_evidence_pack, grounding_check, merge, sufficiency_gate
 
 
@@ -52,6 +55,8 @@ def build_workflow_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -
     graph.add_node("memory_reflection", reflect_and_plan_memory)
     graph.add_node("propose_tools", propose_tools)
     graph.add_node("critic_check", critic_check)
+    graph.add_node("quality_check", quality_check)
+    graph.add_node("safety_check", safety_check)
     graph.add_node("approval_gate", approval_gate)
     graph.add_node("finalize", finalize)
     graph.set_entry_point("collect_context")
@@ -71,7 +76,16 @@ def build_workflow_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -
     graph.add_edge("grounding_check", "memory_reflection")
     graph.add_edge("memory_reflection", "propose_tools")
     graph.add_edge("propose_tools", "critic_check")
-    graph.add_edge("critic_check", "approval_gate")
+    graph.add_edge("critic_check", "quality_check")
+    # L1 quality gate: loop back to synthesize on "revise", else advance to L2.
+    graph.add_conditional_edges(
+        "quality_check",
+        route_quality,
+        {"revise": "synthesize", "safety": "safety_check"},
+    )
+    # L2 safety gate: always advance to the approval gate (which handles
+    # both normal approval and human escalation).
+    graph.add_edge("safety_check", "approval_gate")
     graph.add_edge("approval_gate", "finalize")
     graph.add_edge("finalize", END)
     return graph.compile(checkpointer=checkpointer)
