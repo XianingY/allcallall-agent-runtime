@@ -13,12 +13,17 @@ from typing import Any, Protocol
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 
+from ..config import config as _default_config
 from .mysql import MySQLCheckpointSaver
 from .sqlite_saver import SQLiteCheckpointSaver
 
 
 # Re-export langgraph's in-memory saver under the project's naming convention.
 MemoryCheckpointSaver = MemorySaver
+
+
+def _default_mysql_pool_size() -> int:
+    return max(1, int(_default_config.checkpoint_mysql_pool_size))
 
 
 class CheckpointStore(Protocol):
@@ -53,7 +58,9 @@ class MySQLCheckpointStore:
 
     def make_checkpointer(self) -> BaseCheckpointSaver[Any] | None:
         if self._checkpointer is None:
-            self._checkpointer = MySQLCheckpointSaver(self._dsn)
+            self._checkpointer = MySQLCheckpointSaver(
+                self._dsn, pool_size=_default_mysql_pool_size()
+            )
         return self._checkpointer
 
 

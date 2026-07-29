@@ -103,6 +103,66 @@ class GoToolBridge:
             chunks=tuple(chunks_from_tool_output(output_json)),
         )
 
+    def execute_write_tool(
+        self,
+        *,
+        organization_id: int,
+        user_id: int,
+        tool_name: str,
+        tool_input: dict[str, Any],
+    ) -> None:
+        """Execute an approved write tool against the Go backend.
+
+        Write tools (e.g. persisting a meeting brief) run *after* human approval,
+        consumed from the async tool queue by the background worker. The request
+        is authenticated with the shared bearer token, exactly like the read path.
+        Raises :class:`ToolBridgeError` on failure (the worker then retries via the
+        queue's bounded backoff / dead-letter policy).
+        """
+        if not self.configured():
+            raise ToolBridgeError("go tool bridge is not configured", retryable=False)
+        payload = {
+            "organization_id": organization_id,
+            "user_id": user_id,
+            "tool_name": tool_name,
+            "arguments": tool_input,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+        }
+
+        def _call() -> httpx.Response:
+            try:
+                response = self._client.post(
+                    f"{self.base_url}/api/v1/internal/agent/tools/write",
+                    json=payload,
+                    headers=headers,
+                )
+            except httpx.HTTPError as exc:
+                raise ToolBridgeError(f"go tool bridge unavailable: {exc}", retryable=True) from exc
+            if response.status_code == 429 or response.status_code >= 500:
+                raise ToolBridgeError(
+                    f"go tool bridge retryable status {response.status_code}", retryable=True
+                )
+            if response.status_code >= 400:
+                raise ToolBridgeError(
+                    f"go tool bridge returned {response.status_code}: {response.text[:300]}", retryable=False
+                )
+            return response
+
+        with_retry(
+            _call,
+            should_retry=lambda exc: isinstance(exc, ToolBridgeError) and exc.retryable,
+            max_attempts=self.max_retries + 1,
+            base_delay_sec=_cfg.config.retry_base_delay_sec,
+            max_delay_sec=_cfg.config.retry_max_delay_sec,
+            on_retry=lambda exc, attempt: registry.counter(
+                "agent_runtime_tool_bridge_retries_total",
+                "Retries performed by the Go tool bridge client on transient faults",
+            ).inc(),
+        )
+
 
 def chunks_from_tool_output(output_json: str) -> list[ContextChunk]:
     if not output_json.strip():

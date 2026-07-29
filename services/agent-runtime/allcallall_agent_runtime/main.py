@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Response
+import threading
 
+from fastapi import Depends, FastAPI, HTTPException, Response
+
+from .api_auth import require_auth
+from .async_tool_queue import QueuedTask, ToolQueueWorker, get_default_tool_queue
 from .config import config as runtime_config
 from .helpers import SUPPORTED_WORKFLOWS
-from .harness import AllCallAllAgentHarness
+from .harness import HarnessTimeoutExceeded, get_harness
 from .metrics import registry
 from .models import (
     AgentRunRequest,
@@ -14,24 +18,35 @@ from .models import (
     WorkflowRequest,
     WorkflowResponse,
 )
+from .skill_registry import build_production_registry
+from .tool_bridge import GoToolBridge
 
 
 def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
     """Run the meeting brief workflow."""
     registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
-    return AllCallAllAgentHarness().run_meeting_brief(request)
+    try:
+        return get_harness().run_meeting_brief(request)
+    except HarnessTimeoutExceeded:
+        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
 
 
 def run_react_agent(request: AgentRunRequest) -> AgentRunResponse:
     """Run the react agent workflow."""
     registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
-    return AllCallAllAgentHarness().run_react_agent(request)
+    try:
+        return get_harness().run_react_agent(request)
+    except HarnessTimeoutExceeded:
+        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
 
 
 def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
     """Run a workflow with the given request."""
     registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
-    return AllCallAllAgentHarness().run_workflow(request)
+    try:
+        return get_harness().run_workflow(request)
+    except HarnessTimeoutExceeded:
+        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
 
 app = FastAPI(title="AllCallAll Agent Runtime", version="0.1.0")
 
@@ -93,16 +108,85 @@ def capabilities() -> dict[str, object]:
     }
 
 
-@app.post("/v1/agents/react/run", response_model=AgentRunResponse)
+@app.post("/v1/agents/react/run", response_model=AgentRunResponse, dependencies=[Depends(require_auth)])
 def react_run(request: AgentRunRequest) -> AgentRunResponse:
     return run_react_agent(request)
 
 
-@app.post("/v1/workflows/meeting-brief/run")
+@app.post("/v1/workflows/meeting-brief/run", dependencies=[Depends(require_auth)])
 def meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
     return run_meeting_brief(request)
 
 
-@app.post("/v1/workflows/{preset}/run", response_model=WorkflowResponse)
+@app.post("/v1/workflows/{preset}/run", response_model=WorkflowResponse, dependencies=[Depends(require_auth)])
 def workflow_run(preset: str, request: WorkflowRequest) -> WorkflowResponse:
     return run_workflow(request.model_copy(update={"preset": preset}))
+
+
+@app.get("/v1/tool-queue/status", dependencies=[Depends(require_auth)])
+def tool_queue_status() -> dict[str, object]:
+    """Operational view of the async write-tool queue (Module 6).
+
+    Shows how many approved write proposals are queued, in flight, done, or
+    dead-lettered. Enabling ``PY_AGENT_ENABLE_TOOL_QUEUE`` makes workflow runs
+    enqueue their approved writes here; a background worker consumes them.
+    """
+    queue = get_default_tool_queue()
+    tasks = queue.all()
+    return {
+        "enabled": runtime_config.enable_tool_queue,
+        "queued": sum(1 for t in tasks if t.status == "queued"),
+        "processing": sum(1 for t in tasks if t.status == "processing"),
+        "done": sum(1 for t in tasks if t.status == "done"),
+        "dead": sum(1 for t in tasks if t.status == "dead"),
+        "total": len(tasks),
+    }
+
+
+@app.get("/v1/skills", dependencies=[Depends(require_auth)])
+def list_skills() -> dict[str, object]:
+    """Resolve the deployed skill set, applying the security overlay.
+
+    This is the production call path for :class:`SkillRegistry` /
+    :class:`SecurityOverlay`: high-risk skills are force-routed through the safety
+    plan and marked approval-required. Returns an empty list when skills are
+    disabled or no manifest is configured.
+    """
+    registry = build_production_registry(runtime_config.skill_manifest_path or None)
+    skills: list[dict[str, object]] = []
+    for skill in registry.all():
+        try:
+            resolved = registry.resolve(skill.name)
+        except KeyError:
+            continue
+        skills.append(
+            {
+                "name": resolved.name,
+                "risk_level": resolved.risk_level,
+                "requires_approval": resolved.requires_approval,
+                "tools": list(resolved.allowed_tools),
+            }
+        )
+    return {"enabled": runtime_config.enable_skills, "skills": skills}
+
+
+def _tool_queue_executor(task: QueuedTask) -> None:
+    """Execute one queued write proposal via the Go backend (shared token auth)."""
+    bridge = GoToolBridge()
+    bridge.execute_write_tool(
+        organization_id=int(task.payload.get("organization_id", 0)),
+        user_id=int(task.payload.get("user_id", 0)),
+        tool_name=task.tool_name,
+        tool_input=task.payload,
+    )
+
+
+# Start the background worker that drains the async write-tool queue when the
+# feature is enabled. Gated behind PY_AGENT_ENABLE_TOOL_QUEUE so default
+# deployments keep the legacy (proposals-returned-to-caller) behavior.
+if runtime_config.enable_tool_queue:
+    _tool_queue_worker = ToolQueueWorker(get_default_tool_queue(), _tool_queue_executor)
+    _tool_queue_worker_thread = threading.Thread(
+        target=_tool_queue_worker.run, name="agent-tool-queue-worker", daemon=True
+    )
+    _tool_queue_worker_thread.start()

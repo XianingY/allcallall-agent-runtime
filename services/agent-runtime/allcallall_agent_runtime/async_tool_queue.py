@@ -29,7 +29,25 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
+
+
+# Priority labels (as used by ToolProposal) mapped to queue ordering integers.
+# Lower number = higher priority (claimed first).
+PRIORITY_HIGH = "high"
+PRIORITY_NORMAL = "normal"
+PRIORITY_LOW = "low"
+
+_PRIORITY_TO_INT: dict[str, int] = {
+    PRIORITY_HIGH: 1,
+    PRIORITY_NORMAL: 5,
+    PRIORITY_LOW: 9,
+}
+
+
+def priority_to_int(priority: str) -> int:
+    """Map a priority label to its ordering integer (unknown labels -> normal)."""
+    return _PRIORITY_TO_INT.get(str(priority).lower(), _PRIORITY_TO_INT[PRIORITY_NORMAL])
 
 
 @dataclass
@@ -145,6 +163,10 @@ class AsyncToolQueue:
                 return task.task_id
         return None
 
+    def all(self) -> list[QueuedTask]:
+        """Return every task currently known to the store (any status)."""
+        return self._store.all()
+
     # ---- claim (lease) --------------------------------------------------- #
     def claim(self, owner: str, now: float | None = None, visibility_timeout: float = 30.0) -> QueuedTask | None:
         now = now if now is not None else time.time()
@@ -211,3 +233,69 @@ class AsyncToolQueue:
         if isinstance(store, InMemoryTaskStore):
             return list(store._dead)
         return [t for t in store.all() if t.status == "dead"]
+
+
+# A process-wide queue shared by the harness (which enqueues approved write
+# proposals) and the worker (which claims and executes them). Using one instance
+# keeps enqueue and status reporting consistent within a deployment.
+_default_queue: AsyncToolQueue | None = None
+
+
+def get_default_tool_queue() -> AsyncToolQueue:
+    """Return the process-wide :class:`AsyncToolQueue` (lazy singleton)."""
+    global _default_queue
+    if _default_queue is None:
+        _default_queue = AsyncToolQueue()
+    return _default_queue
+
+
+# Executors receive a claimed task and are responsible for performing the write.
+# They should raise on failure (so the task is retried / dead-lettered) and
+# return normally on success.
+ToolExecutor = Callable[[QueuedTask], None]
+
+
+class ToolQueueWorker:
+    """Background consumer: claim -> execute -> ack / dead-letter.
+
+    The worker is intentionally decoupled from any concrete execution backend so
+    it can be unit-tested with a fake executor. In production it is driven by a
+    :class:`~allcallall_agent_runtime.tool_bridge.GoToolBridge` write call (see
+    ``start_tool_queue_worker`` in ``main.py``), gated behind
+    ``PY_AGENT_ENABLE_TOOL_QUEUE``.
+    """
+
+    def __init__(
+        self,
+        queue: AsyncToolQueue,
+        executor: ToolExecutor,
+        owner: str = "agent-runtime-worker",
+        visibility_timeout: float = 30.0,
+    ) -> None:
+        self._queue = queue
+        self._executor = executor
+        self._owner = owner
+        self._visibility_timeout = visibility_timeout
+        self._stop = False
+
+    def stop(self) -> None:
+        self._stop = True
+
+    def run_once(self, now: float | None = None) -> bool:
+        """Process a single task. Returns ``True`` if a task was handled."""
+        task = self._queue.claim(self._owner, now=now, visibility_timeout=self._visibility_timeout)
+        if task is None:
+            return False
+        try:
+            self._executor(task)
+        except Exception as exc:
+            self._queue.fail(task.task_id, str(exc), now=now)
+        else:
+            self._queue.complete(task.task_id)
+        return True
+
+    def run(self, poll_interval: float = 1.0, now_provider: Callable[[], float] = time.time) -> None:
+        """Loop until :meth:`stop` is called (intended to run on a daemon thread)."""
+        while not self._stop:
+            if not self.run_once(now=now_provider()):
+                time.sleep(poll_interval)

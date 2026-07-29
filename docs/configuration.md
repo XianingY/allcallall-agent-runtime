@@ -31,6 +31,60 @@ All values are loaded through `pydantic-settings`:
 | `PY_AGENT_RAG_RUNTIME_BASE_URL` | empty | RAG Runtime base URL. |
 | `PY_AGENT_RAG_RUNTIME_TIMEOUT_SEC` | `10.0` | RAG Runtime request timeout. |
 
+### Inbound API Authentication
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PY_AGENT_API_TOKEN` | empty | Bearer token required on `/v1` workflow **run** endpoints (`/v1/agents/react/run`, `/v1/workflows/meeting-brief/run`, `/v1/workflows/{preset}/run`). |
+
+The runtime already authenticates *outbound* calls to the Go backend via
+`PY_AGENT_TOOL_BRIDGE_TOKEN`. Inbound run endpoints are now protected by the
+same bearer-token pattern.
+
+**Safe default (backward compatible):** when `PY_AGENT_API_TOKEN` is **not set**,
+the run endpoints remain open and the process logs a one-time warning. This
+prevents a configuration change from breaking existing deployments that rely on a
+perimeter/network policy for access. Once the token is set, every run endpoint
+enforces `Authorization: Bearer <token>` and returns `401` for missing or
+mismatched credentials. `/health` and `/ready` are never gated.
+
+Set the same value on every caller (the AllCallAll Go backend) and rotate via
+your secret manager; the comparison is constant-time.
+
+### Async write-tool queue (Module 6)
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PY_AGENT_ENABLE_TOOL_QUEUE` | `false` | When `true`, approved write-tool proposals produced by a workflow run are enqueued on the in-process :class:`AsyncToolQueue` and executed in the background by a worker that calls the Go backend's write tool endpoint (shared `PY_AGENT_TOOL_BRIDGE_TOKEN` auth). When `false` (default), proposals are returned to the caller unchanged (legacy behavior). |
+
+Endpoints (all bearer-protected when `PY_AGENT_API_TOKEN` is set):
+
+* `GET /v1/tool-queue/status` — counts of `queued` / `processing` / `done` / `dead` tasks.
+* `GET /v1/skills` — resolves the deployed skill set, applying the security overlay (see below).
+
+> **Roadmap note:** the worker loop (`ToolQueueWorker`) is fully implemented and
+> unit-tested (claim → execute via Go tool bridge → ack / retry / dead-letter),
+> but it is gated behind `PY_AGENT_ENABLE_TOOL_QUEUE`. The Go backend write-tool
+> endpoint it calls is the production execution sink; until that endpoint is
+> wired, enabling the flag will dead-letter writes after retries. Keep it `false`
+> unless the Go side is ready.
+
+### Skill registry hardening (Module 5)
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PY_AGENT_ENABLE_SKILLS` | `false` | When `true`, `GET /v1/skills` resolves skills from the manifest at `PY_AGENT_SKILL_MANIFEST_PATH`. |
+| `PY_AGENT_SKILL_MANIFEST_PATH` | empty | Path to a YAML manifest listing allowed skill files **and** the operator-asserted `risk_level` floor for each. |
+
+Skills are no longer trusted on frontmatter self-report alone. A skill's resolved
+risk level is the **strictest** of (manifest-declared floor, file frontmatter):
+a file can only make itself *more* strict, never looser. High-risk skills are
+force-routed through :class:`SecurityOverlay` (mandatory safety plan +
+approval). Use `SkillRegistry.load_manifest` in production; the wildcard
+`load_directory` is retained only for trusted, operator-controlled directories
+and emits a warning.
+
+
 ### Agentic RAG
 
 | Variable | Default | Description |
@@ -73,6 +127,7 @@ See `docs/check-agents.md` for the two-tier CheckAgent loop.
 | `PY_AGENT_MAX_QUALITY_RETRIES` | `1` | L1 `quality_check` revise budget before escalation. |
 | `PY_AGENT_PROMPT_VERSION` | empty | Prompt version pin. |
 | `PY_AGENT_ENABLE_GROUNDING_CHECK` | `false` | Enable citation-grounding verification. |
+| `PY_AGENT_REQUEST_TIMEOUT_SECONDS` | `120.0` | Wall-clock deadline for a single workflow run. Exceeding it raises a clear timeout, mapped by the HTTP layer to `504`. Set to `0` to disable the deadline. |
 
 ### Context compression (hierarchical memory)
 

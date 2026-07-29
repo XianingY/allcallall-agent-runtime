@@ -4,6 +4,14 @@ PYTHON ?= $(abspath $(VENV)/bin/python)
 AGENT_PORT ?= 8090
 RAG_PORT ?= 8091
 
+# Disable LangSmith tracing in the test/eval targets. The langchain pytest
+# plugin auto-exports traces on every run; in offline/airgapped CI that network
+# call must not be made (it can hang or be killed by the sandbox). Real tracing
+# can still be enabled by overriding PYTEST below.
+export LANGSMITH_DISABLED ?= true
+
+PYTEST ?= $(PYTHON) -m pytest -p no:langsmith
+
 .PHONY: venv install-dev test lint typecheck contracts contracts-check agent-eval rag-eval portfolio-eval ai-agent-portfolio-eval verify docker-build run-agent-runtime run-rag-runtime
 
 venv:
@@ -19,12 +27,12 @@ install-dev: venv
 	$(PYTHON) -m pip install -e "packages/sdk[dev]"
 
 test:
-	cd packages/shared && $(PYTHON) -m pytest
-	cd services/agent-runtime && $(PYTHON) -m pytest
-	cd services/rag-runtime && $(PYTHON) -m pytest
-	cd services/sandbox-runner && $(PYTHON) -m pytest
-	cd services/interview-mcp && $(PYTHON) -m pytest
-	cd packages/sdk && $(PYTHON) -m pytest
+	cd packages/shared && $(PYTEST)
+	cd services/agent-runtime && $(PYTEST)
+	cd services/rag-runtime && $(PYTEST)
+	cd services/sandbox-runner && $(PYTEST)
+	cd services/interview-mcp && $(PYTEST)
+	cd packages/sdk && $(PYTEST)
 
 lint:
 	$(PYTHON) -m ruff check packages/shared services/agent-runtime services/rag-runtime services/sandbox-runner services/interview-mcp packages/sdk scripts

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import uuid
 from collections import defaultdict
 from threading import Lock
 from typing import Any
@@ -18,6 +20,7 @@ from .dag import build_workflow_graph
 from .helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
 from .providers.base import LLMProvider
 from .tool_layer import GoToolBridgeLayer, ToolLayer
+from .async_tool_queue import AsyncToolQueue, get_default_tool_queue, priority_to_int
 from .models import (
     AgentHarnessMetadata,
     AgentRunRequest,
@@ -47,6 +50,25 @@ from .prompts import prompt_version_for
 from .providers import ProviderError, create_provider
 
 
+class HarnessTimeoutExceeded(TimeoutError):
+    """Raised when a single workflow run exceeds ``request_timeout_seconds``.
+
+    The HTTP layer maps this to a ``504`` (or ``408`` for client-aborted style)
+    response so a runaway workflow cannot hang the request worker indefinitely.
+    """
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__(f"workflow run exceeded the {timeout_seconds}s request timeout")
+        self.timeout_seconds = timeout_seconds
+
+
+# Bounded pool for running blocking LangGraph invocations off the (sync) request
+# worker thread so a per-request timeout can be enforced via future.result().
+_invoke_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=16, thread_name_prefix="agent-harness-invoke"
+)
+
+
 _graph: Any | None = None
 _graph_lock = Lock()
 _default_harness: AllCallAllAgentHarness | None = None
@@ -62,12 +84,24 @@ def get_workflow_graph() -> Any:
     checkpoint store, tool layer, and provider can be injected and tested
     independently.
     """
+    return get_harness()._get_graph()
+
+
+def get_harness() -> AllCallAllAgentHarness:
+    """Return a process-wide singleton harness.
+
+    Building a harness (graph compilation, checkpointer, connection pool) is
+    comparatively expensive, so the HTTP layer reuses one instance across all
+    requests instead of constructing a fresh one per call. Reuse is thread-safe:
+    the graph is compiled once under a lock, and the LangGraph graph plus the
+    checkpoint connection pool are safe for concurrent ``invoke`` calls.
+    """
     global _default_harness
     if _default_harness is None:
         with _default_harness_lock:
             if _default_harness is None:
                 _default_harness = AllCallAllAgentHarness()
-    return _default_harness._get_graph()
+    return _default_harness
 
 
 def _default_checkpoint_store() -> NullCheckpointStore | MySQLCheckpointStore | SQLiteCheckpointStore | MemoryCheckpointStore:
@@ -100,10 +134,15 @@ class AllCallAllAgentHarness:
         checkpoint_store: CheckpointStore | None = None,
         tool_layer: ToolLayer | None = None,
         provider: LLMProvider | None = None,
+        tool_queue: AsyncToolQueue | None = None,
     ) -> None:
         self.checkpoint_store = checkpoint_store or _default_checkpoint_store()
         self.tool_layer = tool_layer or GoToolBridgeLayer()
         self._provider = provider
+        # When the async tool queue is enabled, approved write proposals produced
+        # by a run are enqueued here (and executed by the background worker).
+        # Otherwise the legacy behavior is preserved (proposals returned to caller).
+        self._tool_queue = tool_queue or (get_default_tool_queue() if app_config.enable_tool_queue else None)
         self._graph: Any | None = None
         self._graph_lock = Lock()
 
@@ -114,6 +153,26 @@ class AllCallAllAgentHarness:
                     checkpointer = self.checkpoint_store.make_checkpointer()
                     self._graph = build_workflow_graph(checkpointer)
         return self._graph
+
+    def _invoke_graph(self, state: dict[str, Any], run_config: dict[str, Any]) -> dict[str, Any]:
+        """Invoke the compiled graph, enforcing ``request_timeout_seconds``.
+
+        The LangGraph ``invoke`` is blocking, so it runs on a worker thread;
+        ``future.result(timeout=...)`` turns a runaway run into a clear
+        :class:`HarnessTimeoutExceeded` instead of hanging the request worker.
+        A ``timeout`` of 0 disables the deadline (legacy behavior).
+        """
+        graph = self._get_graph()
+        timeout = float(app_config.request_timeout_seconds)
+        if timeout and timeout > 0:
+            future = _invoke_executor.submit(graph.invoke, state, config=run_config)
+            try:
+                result: dict[str, Any] = future.result(timeout=timeout)
+            except concurrent.futures.TimeoutError as exc:
+                raise HarnessTimeoutExceeded(timeout) from exc
+            return result
+        graph_result: dict[str, Any] = graph.invoke(state, config=run_config)
+        return graph_result
 
     def run_meeting_brief(self, request: MeetingBriefRequest) -> MeetingBriefResponse:
         return self.run_workflow(request.model_copy(update={"preset": "meeting_brief"}))
@@ -141,7 +200,7 @@ class AllCallAllAgentHarness:
             # (SQLite/MySQL). Derive it from the request so runs are durable and
             # resumable, and stable across retries of the same workflow run.
             run_config = {"configurable": {"thread_id": f"aca-{request.workflow_run_id}"}}
-            result = self._get_graph().invoke(
+            result = self._invoke_graph(
                 {
                     "request": request,
                     "provider": provider,
@@ -149,8 +208,12 @@ class AllCallAllAgentHarness:
                     "trace_events": [],
                     "role_results": [],
                 },
-                config=run_config,
+                run_config,
             )
+            # Hand approved write proposals to the async queue for background
+            # execution via the Go tool bridge (a real, durable handoff rather
+            # than dropping them). No-op when the queue is disabled.
+            self._enqueue_proposals(request, result.get("proposed_tool_calls", []))
         except ProviderError as exc:
             return self._failure_response(
                 request,
@@ -167,6 +230,34 @@ class AllCallAllAgentHarness:
             )
 
         return self._response_from_graph_result(request, provider_name, result)
+
+    def _enqueue_proposals(
+        self, request: WorkflowRequest, proposals: list[object]
+    ) -> None:
+        """Enqueue approved write proposals onto the async tool queue.
+
+        Each :class:`ToolProposal` carries the idempotency key, target queue,
+        priority, rate-limit key and retry budget the queue needs. We also stamp
+        the originating ``organization_id`` / ``user_id`` onto the payload so the
+        background worker can authenticate the write against the Go backend.
+        Silently skipped when the queue is disabled (legacy behavior).
+        """
+        if self._tool_queue is None or not proposals:
+            return
+        for proposal in proposals:
+            tool_name: str = getattr(proposal, "tool_name", "")
+            payload = dict(getattr(proposal, "arguments", {}) or {})
+            payload.setdefault("organization_id", request.organization_id)
+            payload.setdefault("user_id", request.user_id)
+            self._tool_queue.enqueue(
+                tool_name,
+                payload,
+                idempotency_key=getattr(proposal, "idempotency_key", "") or f"{tool_name}:{uuid.uuid4().hex}",
+                queue_name=getattr(proposal, "queue_name", "agent_writebacks"),
+                priority=priority_to_int(getattr(proposal, "priority", "normal")),
+                rate_limit_key=getattr(proposal, "rate_limit_key", ""),
+                max_attempts=getattr(proposal, "max_attempts", 3),
+            )
 
     def _failure_response(
         self,

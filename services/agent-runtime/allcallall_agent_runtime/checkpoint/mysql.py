@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import queue
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from threading import RLock
+from threading import Lock, RLock
 from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
@@ -124,11 +125,30 @@ class _CheckpointTransaction:
 
 
 class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
-    """MySQL-backed LangGraph checkpoint saver using typed JSON serialization."""
+    """MySQL-backed LangGraph checkpoint saver using typed JSON serialization.
 
-    def __init__(self, dsn: str, *, connection_factory: ConnectionFactory | None = None) -> None:
+    A single saver instance maintains a small bounded pool of MySQL connections
+    (``pool_size``) instead of opening and closing one connection per operation.
+    This removes the per-request connection churn and the quadratic reconnect
+    behavior of ``list()`` (which previously opened a new connection for every
+    row via ``get_tuple``). Connections are created lazily up to ``pool_size``
+    and reused; a connection that errors out is closed and transparently
+    replaced so the pool never shrinks below capacity on transient faults.
+    """
+
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        connection_factory: ConnectionFactory | None = None,
+        pool_size: int = 4,
+    ) -> None:
         super().__init__()
         self._connection_factory = connection_factory or mysql_connection_factory(dsn)
+        self._pool_size = max(1, int(pool_size))
+        self._free_connections: queue.Queue[Connection] = queue.Queue(maxsize=self._pool_size)
+        self._created_connections = 0
+        self._pool_lock = Lock()
         self._active_transaction: ContextVar[_CheckpointTransaction | None] = ContextVar(
             f"mysql_checkpoint_transaction_{id(self)}",
             default=None,
@@ -138,11 +158,55 @@ class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
 
     @contextmanager
     def _connection(self) -> Iterator[Connection]:
-        connection = self._connection_factory()
+        connection = self._acquire_connection()
         try:
             yield connection
-        finally:
+        except BaseException:
+            # A failed operation may have left the connection mid-transaction or
+            # broken; retire it and put a fresh replacement back into the pool.
+            self._retire_and_replenish(connection)
+            raise
+        else:
+            self._release_connection(connection)
+
+    def _acquire_connection(self) -> Connection:
+        try:
+            return self._free_connections.get_nowait()
+        except queue.Empty:
+            with self._pool_lock:
+                if self._created_connections < self._pool_size:
+                    self._created_connections += 1
+                    return self._connection_factory()
+            # Pool exhausted: block until a peer returns a connection.
+            return self._free_connections.get()
+
+    def _release_connection(self, connection: Connection) -> None:
+        try:
+            # Roll back anything left open by a previous use before reuse.
+            connection.rollback()
+        except Exception:
+            self._retire_and_replenish(connection)
+            return
+        try:
+            self._free_connections.put_nowait(connection)
+        except queue.Full:  # pragma: no cover - defensive
+            self._retire_and_replenish(connection)
+
+    def _retire_and_replenish(self, connection: Connection) -> None:
+        try:
             connection.close()
+        except Exception:
+            pass
+        with self._pool_lock:
+            self._created_connections -= 1
+            try:
+                fresh = self._connection_factory()
+                self._created_connections += 1
+                self._free_connections.put_nowait(fresh)
+            except Exception:
+                # DB unreachable: leave the pool smaller; a later acquire will
+                # try to grow it again up to pool_size.
+                pass
 
     @contextmanager
     def checkpoint_transaction(self, thread_id: str, execution_id: str) -> Iterator[None]:
