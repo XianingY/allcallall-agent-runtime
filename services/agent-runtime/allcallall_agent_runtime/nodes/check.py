@@ -20,7 +20,7 @@ from enum import Enum
 from typing import Any
 
 from ..config import config as app_config
-from ..models import TraceEvent
+from ..models import OutputDecision, TraceEvent
 from ..state import GraphState
 
 
@@ -99,27 +99,61 @@ def quality_check(state: GraphState) -> dict[str, Any]:
             )
             _record(state, outcome)
             # Increment the live retry counter so the loop is bounded.
-            return {"critic_retries": retries + 1, **_outcome_payload("quality_check", outcome)}
+            return {
+                "critic_retries": retries + 1,
+                "output_decision": _accumulate_quality(state, outcome),
+                **_outcome_payload("quality_check", outcome),
+            }
         if "grounding_failed" in issues:
             outcome = CheckOutcome(
                 "quality_check", CheckDecision.ESCALATE,
                 "grounding check failed; escalate to human review", 0.0,
             )
             _record(state, outcome)
-            return _outcome_payload("quality_check", outcome)
+            return {
+                "output_decision": _accumulate_quality(state, outcome),
+                **_outcome_payload("quality_check", outcome),
+            }
         outcome = CheckOutcome(
             "quality_check", CheckDecision.REVISE,
             "critic flagged quality issues; re-synthesize", 0.3,
         )
         _record(state, outcome)
-        return {"critic_retries": retries + 1, **_outcome_payload("quality_check", outcome)}
+        return {
+            "critic_retries": retries + 1,
+            "output_decision": _accumulate_quality(state, outcome),
+            **_outcome_payload("quality_check", outcome),
+        }
 
     outcome = CheckOutcome(
         "quality_check", CheckDecision.PASS,
         "draft quality acceptable", float(getattr(critic, "citation_coverage", 0.0) or 0.0),
     )
     _record(state, outcome)
-    return _outcome_payload("quality_check", outcome)
+    return {
+        "output_decision": _accumulate_quality(state, outcome),
+        **_outcome_payload("quality_check", outcome),
+    }
+
+
+def _accumulate_quality(state: GraphState, outcome: CheckOutcome) -> OutputDecision:
+    """Fold the L1 decision into the running :class:`OutputDecision` (Module 3)."""
+    od = state.get("output_decision") or OutputDecision()
+    od.l1_decision = outcome.decision.value
+    od.quality_trend.append(outcome.decision.value)
+    od.confidence_trajectory.append(outcome.score)
+    od.check_log.append(asdict(outcome))
+    if outcome.decision == CheckDecision.REVISE:
+        od.revision_count += 1
+        od.total_review_cycles += 1
+    elif outcome.decision == CheckDecision.ESCALATE:
+        od.final_verdict = "escalate"
+        od.rationale = outcome.rationale
+    elif outcome.decision == CheckDecision.PASS:
+        # Tentative; L2 safety may still override to escalate.
+        od.final_verdict = "accept"
+        od.rationale = outcome.rationale
+    return od
 
 
 def safety_check(state: GraphState) -> dict[str, Any]:
@@ -133,7 +167,10 @@ def safety_check(state: GraphState) -> dict[str, Any]:
                 "unsafe write proposal detected (not approval-gated); escalate", 0.0,
             )
             _record(state, outcome)
-            return _outcome_payload("safety_check", outcome)
+            return {
+                "output_decision": _accumulate_safety(state, outcome),
+                **_outcome_payload("safety_check", outcome),
+            }
 
     risk_flags = state.get("risk_flags", []) or []
     if risk_flags:
@@ -142,13 +179,33 @@ def safety_check(state: GraphState) -> dict[str, Any]:
             f"policy risk flags raised ({len(risk_flags)}); escalate to human", 0.2,
         )
         _record(state, outcome)
-        return _outcome_payload("safety_check", outcome)
+        return {
+            "output_decision": _accumulate_safety(state, outcome),
+            **_outcome_payload("safety_check", outcome),
+        }
 
     outcome = CheckOutcome(
         "safety_check", CheckDecision.PASS, "no unsafe writes or risk flags", 1.0,
     )
     _record(state, outcome)
-    return _outcome_payload("safety_check", outcome)
+    return {
+        "output_decision": _accumulate_safety(state, outcome),
+        **_outcome_payload("safety_check", outcome),
+    }
+
+
+def _accumulate_safety(state: GraphState, outcome: CheckOutcome) -> OutputDecision:
+    """Fold the L2 decision into the running :class:`OutputDecision` (Module 3)."""
+    od = state.get("output_decision") or OutputDecision()
+    od.l2_decision = outcome.decision.value
+    od.check_log.append(asdict(outcome))
+    if outcome.decision == CheckDecision.ESCALATE:
+        od.final_verdict = "escalate"
+        od.rationale = outcome.rationale
+    elif outcome.decision == CheckDecision.PASS and od.final_verdict == "accept":
+        # L2 confirms the tentative L1 accept.
+        od.rationale = od.rationale or outcome.rationale
+    return od
 
 
 def route_quality(state: GraphState) -> str:

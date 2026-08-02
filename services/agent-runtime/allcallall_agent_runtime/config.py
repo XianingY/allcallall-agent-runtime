@@ -85,6 +85,20 @@ class AgentRuntimeConfig(BaseSettings):
     enable_skills: bool = False
     skill_manifest_path: str = ""
 
+    # ReAct determinable termination (Module 1): lets bounded_react_search stop
+    # early on goal_achievement / confidence_plateau / CheckAgent signals instead
+    # of always running max_iterations. Off by default — when disabled the loop
+    # behaves exactly as before (only the searcher citation early-exit remains).
+    enable_early_termination: bool = False
+    early_termination_goal_threshold: float = 0.7
+    early_termination_plateau_window: int = 2
+
+    # Dynamic role allocation / multi-agent routing (Module 2): insert a
+    # RoleRouter node with conditional edges that can skip unnecessary roles
+    # (e.g. risk_analyst for context_qa). Off by default — when disabled the DAG
+    # is the original static chain, so behavior is unchanged.
+    enable_role_router: bool = False
+
     model_config = {"env_prefix": "PY_AGENT_"}
 
 

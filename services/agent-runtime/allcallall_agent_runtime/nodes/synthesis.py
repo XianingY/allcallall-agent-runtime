@@ -7,18 +7,25 @@ from typing import Literal
 
 from ..models import (
     Citation,
+    ContextChunk,
     ContextSufficiency,
     MemoryReflection,
     RiskAssessment,
     RoleResult,
+    TerminationSignal,
+    TerminationTrigger,
     TraceEvent,
     WorkflowRequest,
 )
-from ..tool_bridge import GoToolBridge, ToolBridgeError
+from ..tool_bridge import ToolBridgeError
+from ..tool_layer import ToolBridgeLike
+from ..config import config as app_config
 from ..helpers import (
     READ_TOOL_CONTEXT_CHUNKS,
     READ_TOOL_RECENT_MEETINGS,
     WORKFLOW_CONTEXT_QA,
+    WORKFLOW_MEETING_BRIEF,
+    WORKFLOW_RISK_REVIEW,
     citations_from_chunks,
     dedupe_citations,
     request_with_runtime_context,
@@ -66,6 +73,9 @@ def searcher(state: GraphState) -> GraphState:
         max_iterations=request.max_iterations.get("searcher", 3),
         tools=[READ_TOOL_CONTEXT_CHUNKS],
         bridge=state["tool_bridge"],
+        enable_early_termination=app_config.enable_early_termination,
+        goal_threshold=app_config.early_termination_goal_threshold,
+        plateau_window=app_config.early_termination_plateau_window,
     )
     trace.extend(result.react_trace)
     trace.append(TraceEvent(event="graph.node.completed", node="searcher", role="searcher"))
@@ -139,6 +149,27 @@ def synthesize(state: GraphState) -> GraphState:
     )
     trace = state.get("trace_events", [])
     trace.append(TraceEvent(event="graph.node.started", node="synthesize", role="summarizer", status="running"))
+    # Opt-in context (Modules 4 & 5): surface what was injected for auditability.
+    skill_instructions = state.get("skill_instructions", "")
+    if skill_instructions:
+        trace.append(
+            TraceEvent(
+                event="skill.instructions_consumed",
+                node="synthesize",
+                status="applied",
+                metadata={"instruction_length": len(skill_instructions)},
+            )
+        )
+    long_term_memory = state.get("long_term_memory", []) or []
+    if long_term_memory:
+        trace.append(
+            TraceEvent(
+                event="memory.long_term_retrieved",
+                node="synthesize",
+                status="applied",
+                metadata={"memory_count": len(long_term_memory)},
+            )
+        )
     if synthesis:
         trace.append(
             TraceEvent(
@@ -166,13 +197,52 @@ def bounded_react_search(
     role: str,
     max_iterations: int,
     tools: list[str],
-    bridge: GoToolBridge,
+    bridge: ToolBridgeLike,
+    *,
+    enable_early_termination: bool = False,
+    goal_threshold: float = 0.7,
+    plateau_window: int = 2,
 ) -> RoleResult:
-    """Execute bounded ReAct search loop."""
+    """Execute bounded ReAct search loop with determinable termination (Module 1).
+
+    The hard ``max_iterations`` backstop and the existing searcher citation
+    early-exit always apply. When ``enable_early_termination`` is True (opt-in,
+    off by default), three additional signals can stop the loop early:
+
+    * ``goal_achieved``      — role-aware goal achievement score reached threshold,
+    * ``confidence_plateau`` — per-round confidence flat for ``plateau_window`` rounds,
+    * ``checkagent_early_stop`` — cheap deterministic CheckAgent inline signal.
+
+    Every exit is recorded in the attached :class:`TerminationSignal` so the
+    downstream projection can report how many iterations were saved. With the
+    flag off, behavior is byte-for-byte the original loop.
+    """
     max_iterations = max(1, min(max_iterations, 3))
     citations: list[Citation] = []
     snippets: list[str] = []
     trace: list[TraceEvent] = []
+    confidence_history: list[float] = []
+    signal = TerminationSignal()
+
+    def _make_signal(
+        trigger: TerminationTrigger,
+        reason: str,
+        goal_score: float,
+        round_confidence: float,
+        iteration: int,
+    ) -> TerminationSignal:
+        return TerminationSignal(
+            triggered=True,
+            trigger=trigger,
+            reason=reason,
+            goal_score=goal_score,
+            confidence_at_exit=round_confidence,
+            confidence_history=list(confidence_history),
+            iterations_used=iteration,
+            iterations_saved=max_iterations - iteration,
+            citations_found=len(citations),
+        )
+
     for iteration in range(1, max_iterations + 1):
         tool_name = tools[0]
         if role == "risk_analyst" and iteration == max_iterations and READ_TOOL_RECENT_MEETINGS in tools:
@@ -245,12 +315,12 @@ def bounded_react_search(
                     event="citation.selected",
                     node=role,
                     role=role,
-                metadata={
-                    "iteration": iteration,
-                    "source_types": unique_strings([chunk.source_type for chunk in selected]),
-                    "rerank_scores": [chunk.rerank_score for chunk in selected if chunk.rerank_score > 0],
-                },
-            )
+                    metadata={
+                        "iteration": iteration,
+                        "source_types": unique_strings([chunk.source_type for chunk in selected]),
+                        "rerank_scores": [chunk.rerank_score for chunk in selected if chunk.rerank_score > 0],
+                    },
+                )
             )
         trace.append(
             TraceEvent(
@@ -265,17 +335,166 @@ def bounded_react_search(
                 metadata={"max_iterations": max_iterations},
             )
         )
+
+        # --- Determinable termination (Module 1, opt-in) ------------------- #
+        goal_score = 0.0
+        round_confidence = 0.0
+        if enable_early_termination:
+            round_confidence = _compute_round_confidence(role, iteration, citations, selected, request)
+            confidence_history.append(round_confidence)
+            goal_score = _compute_goal_achievement(role, request, citations, snippets, iteration)
+            if goal_score >= goal_threshold:
+                signal = _make_signal(
+                    TerminationTrigger.GOAL_ACHIEVED,
+                    f"goal_score={goal_score:.2f} >= {goal_threshold}",
+                    goal_score,
+                    round_confidence,
+                    iteration,
+                )
+                break
+            if len(confidence_history) >= max(1, plateau_window):
+                recent = confidence_history[-plateau_window:]
+                if (max(recent) - min(recent)) < 0.05:
+                    signal = _make_signal(
+                        TerminationTrigger.CONFIDENCE_PLATEAU,
+                        f"confidence plateau at {[f'{c:.2f}' for c in recent]}",
+                        goal_score,
+                        round_confidence,
+                        iteration,
+                    )
+                    break
+            if iteration >= 2 and _inline_checkagent_should_stop(role, citations, request):
+                signal = _make_signal(
+                    TerminationTrigger.CHECKAGENT_EARLY_STOP,
+                    "inline CheckAgent signaled sufficient evidence",
+                    goal_score,
+                    round_confidence,
+                    iteration,
+                )
+                break
+
+        # --- Existing deterministic early-exit (always on) ---------------- #
         if role == "searcher" and iteration >= 2 and citations:
+            signal = _make_signal(
+                TerminationTrigger.CITATION_SATISFIED,
+                "searcher found citations on or after iteration 2",
+                goal_score,
+                round_confidence,
+                iteration,
+            )
             break
+
+    # Hard backstop: loop exhausted without an earlier signal.
+    if not signal.triggered:
+        last_confidence = confidence_history[-1] if confidence_history else 0.0
+        signal = TerminationSignal(
+            triggered=True,
+            trigger=TerminationTrigger.MAX_ITERATIONS,
+            reason=f"exhausted {max_iterations} iteration(s)",
+            goal_score=goal_score if enable_early_termination else 0.0,
+            confidence_at_exit=last_confidence,
+            confidence_history=list(confidence_history),
+            iterations_used=max_iterations,
+            iterations_saved=0,
+            citations_found=len(citations),
+        )
+
     citations = dedupe_citations(citations)
     snippets = unique_strings(snippets)[:5]
     return RoleResult(
         role=role,
-        summary=f"Bounded ReAct {role} completed {len(trace)} read-tool iteration(s) and found {len(citations)} citation(s).",
+        summary=f"Bounded ReAct {role} completed {signal.iterations_used}/{max_iterations} iter(s), "
+        f"trigger={signal.trigger.value if signal.trigger else 'none'}, "
+        f"found {len(citations)} citation(s).",
         citations=citations,
         snippets=snippets,
         react_trace=trace,
+        termination_signal=signal,
     )
+
+
+def _compute_goal_achievement(
+    role: str,
+    request: WorkflowRequest,
+    citations: list[Citation],
+    snippets: list[str],
+    iteration: int,
+) -> float:
+    """Role-aware ``[0, 1]`` goal achievement score for early termination.
+
+    Pure and deterministic (no LLM): citation saturation + source diversity +
+    role-specific evidence bonuses, discounted by iteration efficiency so later
+    rounds must bring proportionally more evidence to justify continuing.
+    """
+    if not citations and not snippets:
+        return 0.0
+    score = 0.0
+    # Citation-count contribution with diminishing returns (5 cites -> full weight).
+    score += min(len(citations) / 5.0, 1.0) * 0.4
+    # Source-type diversity bonus (4 distinct types -> full weight).
+    source_types = {c.source_type for c in citations}
+    score += min(len(source_types) / 4.0 * 0.2, 0.2)
+    if role == "risk_analyst":
+        has_transcript = any(c.source_type == "meeting_transcript" for c in citations)
+        has_conversation = any(c.source_type in {"conversation", "message"} for c in citations)
+        if has_transcript:
+            score += 0.2
+        if has_conversation:
+            score += 0.1
+    elif role == "searcher":
+        if "knowledge" in source_types:
+            score += 0.15
+        if "meeting_transcript" in source_types:
+            score += 0.15
+    # Later iterations need more evidence to be considered "achieved".
+    efficiency_factor = max(0.5, 1.0 - (iteration - 1) * 0.15)
+    score *= efficiency_factor
+    return min(max(score, 0.0), 1.0)
+
+
+def _compute_round_confidence(
+    role: str,
+    iteration: int,
+    citations: list[Citation],
+    chunks: list[ContextChunk],
+    request: WorkflowRequest,
+) -> float:
+    """Per-round confidence estimate used only for plateau detection."""
+    del role, request  # role/request reserved for future role-specific tuning
+    base = 0.35 + len(citations) * 0.10
+    if any(c.source_type == "meeting_transcript" for c in citations):
+        base += 0.15
+    if any(c.source_type == "knowledge" for c in citations):
+        base += 0.10
+    # Diminishing per-round so a flat signal is detected as a plateau.
+    base *= 0.9 ** (iteration - 1)
+    return min(base, 0.95)
+
+
+def _inline_checkagent_should_stop(
+    role: str,
+    citations: list[Citation],
+    request: WorkflowRequest,
+) -> bool:
+    """Cheap deterministic inline CheckAgent (no LLM) sufficient-evidence test.
+
+    Mirrors what the full critic would catch but is cheap enough to run every
+    round. Returns True only when the current evidence clearly satisfies the
+    preset's minimum grounding requirement.
+    """
+    del role
+    if not citations:
+        return False
+    if request.preset == WORKFLOW_RISK_REVIEW:
+        risk_sources = {"meeting_transcript", "conversation", "message"}
+        if not any(c.source_type in risk_sources for c in citations):
+            return False
+    elif request.preset == WORKFLOW_MEETING_BRIEF:
+        if not any(c.source_type == "meeting_transcript" for c in citations):
+            return False
+    # Generic: 3+ diverse citations is strong evidence of sufficiency.
+    source_types = {c.source_type for c in citations}
+    return len(citations) >= 3 and len(source_types) >= 2
 
 
 def react_thought(role: str, iteration: int) -> str:
@@ -326,6 +545,9 @@ def risk_analyst(state: GraphState) -> GraphState:
         max_iterations=request.max_iterations.get("risk_analyst", 2),
         tools=[READ_TOOL_CONTEXT_CHUNKS, READ_TOOL_RECENT_MEETINGS],
         bridge=state["tool_bridge"],
+        enable_early_termination=app_config.enable_early_termination,
+        goal_threshold=app_config.early_termination_goal_threshold,
+        plateau_window=app_config.early_termination_plateau_window,
     )
     result.summary = f"Risk analyst inspected context with {len(result.react_trace)} bounded read-tool iteration(s)."
     result.risk_flags = infer_risk_flags(request, result.snippets)

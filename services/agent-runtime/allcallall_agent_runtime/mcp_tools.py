@@ -49,7 +49,41 @@ class MCPToolRegistry:
     _tools: dict[str, MCPTool] = field(default_factory=dict)
 
     def register(self, tool: MCPTool) -> None:
+        # Validate the tool's input schema at registration time so a malformed
+        # or unsafe tool (e.g. a synchronous write) fails fast instead of
+        # surfacing a broken descriptor to MCP clients.
+        self._validate_schema(tool)
         self._tools[tool.name] = tool
+
+    @staticmethod
+    def _validate_schema(tool: MCPTool) -> None:
+        """Validate an MCP tool's ``input_schema`` contract (Module 6).
+
+        Raises ``ValueError`` when the schema is not a JSON-Schema ``object``,
+        declares ``required`` fields that are absent from ``properties``, or a
+        ``write`` tool is configured to execute synchronously (it must use
+        ``async_after_approval`` so it is never applied without human approval).
+        """
+        schema = tool.input_schema
+        if not isinstance(schema, dict):
+            raise ValueError(f"tool '{tool.name}': input_schema must be a dict")
+        if schema.get("type") != "object":
+            raise ValueError(f"tool '{tool.name}': input_schema.type must be 'object'")
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            raise ValueError(f"tool '{tool.name}': input_schema.properties must be an object")
+        required = schema.get("required", [])
+        if not isinstance(required, list):
+            raise ValueError(f"tool '{tool.name}': input_schema.required must be a list")
+        missing = set(required) - set(properties.keys())
+        if missing:
+            raise ValueError(
+                f"tool '{tool.name}': required fields {sorted(missing)} missing from properties"
+            )
+        if tool.kind == WRITE and tool.execution_mode == EXEC_SYNC:
+            raise ValueError(
+                f"tool '{tool.name}': write tools must use async_after_approval execution mode"
+            )
 
     def get(self, name: str) -> MCPTool | None:
         return self._tools.get(name)

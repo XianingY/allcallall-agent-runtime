@@ -170,6 +170,30 @@ def list_skills() -> dict[str, object]:
     return {"enabled": runtime_config.enable_skills, "skills": skills}
 
 
+@app.get("/v1/tool-queue/metrics", dependencies=[Depends(require_auth)])
+def tool_queue_metrics() -> dict[str, object]:
+    """Operational metrics for the async write-tool queue (Module 6/7).
+
+    Exposes aggregate health signals useful for dashboards and alerting: how
+    many tasks are in flight, the average number of attempts per task (a proxy
+    for retry pressure), and the dead-letter ratio (a proxy for permanent
+    failures). Enabling ``PY_AGENT_ENABLE_TOOL_QUEUE`` makes workflow runs
+    enqueue their approved writes here; a background worker consumes them.
+    """
+    queue = get_default_tool_queue()
+    tasks = queue.all()
+    total = len(tasks)
+    avg_attempts = (sum(t.attempts for t in tasks) / total) if total else 0.0
+    dead_ratio = (sum(1 for t in tasks if t.status == "dead") / total) if total else 0.0
+    return {
+        "enabled": runtime_config.enable_tool_queue,
+        "total_enqueued": total,
+        "avg_attempts_per_task": round(avg_attempts, 2),
+        "dead_letter_ratio": round(dead_ratio, 4),
+        "dead_letters": len(queue.dead_letters()),
+    }
+
+
 def _tool_queue_executor(task: QueuedTask) -> None:
     """Execute one queued write proposal via the Go backend (shared token auth)."""
     bridge = GoToolBridge()

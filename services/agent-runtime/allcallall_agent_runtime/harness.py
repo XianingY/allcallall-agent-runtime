@@ -16,9 +16,11 @@ from .checkpoint.store import (
     NullCheckpointStore,
     SQLiteCheckpointStore,
 )
+from .context_compression import InMemoryLongTermMemory
 from .dag import build_workflow_graph
 from .helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
 from .providers.base import LLMProvider
+from .skill_registry import build_production_registry
 from .tool_layer import GoToolBridgeLayer, ToolLayer
 from .async_tool_queue import AsyncToolQueue, get_default_tool_queue, priority_to_int
 from .models import (
@@ -196,6 +198,14 @@ class AllCallAllAgentHarness:
         try:
             provider = self._provider or create_provider()
             provider_name = provider.name
+            # Opt-in enhancements that never affect the default path:
+            #  - Module 5: resolve a skill's system instructions and inject them.
+            #  - Module 4: retrieve durable long-term memory (context compression).
+            trace_events: list[TraceEvent] = []
+            skill_instructions = self._resolve_skill_instructions(request, trace_events)
+            long_term_memory = self._resolve_long_term_memory(request)
+            if long_term_memory:
+                request = request.model_copy(update={"long_term_memory": long_term_memory})
             # LangGraph requires a thread_id whenever a checkpointer is attached
             # (SQLite/MySQL). Derive it from the request so runs are durable and
             # resumable, and stable across retries of the same workflow run.
@@ -205,8 +215,10 @@ class AllCallAllAgentHarness:
                     "request": request,
                     "provider": provider,
                     "tool_bridge": self.tool_layer.build(),
-                    "trace_events": [],
+                    "trace_events": trace_events,
                     "role_results": [],
+                    "skill_instructions": skill_instructions,
+                    "long_term_memory": long_term_memory,
                 },
                 run_config,
             )
@@ -311,6 +323,10 @@ class AllCallAllAgentHarness:
             loop_traces,
         )
         stop_reason = self._stop_reason(status, context_sufficiency, critic_result, loop_traces)
+        output_decision = result.get("output_decision")
+        termination_signals = [
+            role.termination_signal for role in role_results if role.termination_signal is not None
+        ]
 
         return WorkflowResponse(
             status=status,
@@ -339,7 +355,60 @@ class AllCallAllAgentHarness:
             graph_expansion=result.get("graph_expansion", GraphExpansion()),
             memory_reflection=result.get("memory_reflection", MemoryReflection()),
             risk_assessment=result.get("risk_assessment", RiskAssessment()),
+            output_decision=output_decision,
+            termination_signals=termination_signals,
         )
+
+    def _resolve_skill_instructions(
+        self, request: WorkflowRequest, trace_events: list[TraceEvent]
+    ) -> str:
+        """Resolve and inject a skill's system instructions (Module 5, opt-in).
+
+        Only runs when ``enable_skills`` is on and a manifest is configured. The
+        matched skill's hardened instructions are injected into the graph state
+        for the synthesize node to consume; failures are swallowed so a missing
+        or misconfigured skill never breaks a workflow run.
+        """
+        if not app_config.enable_skills or not app_config.skill_manifest_path:
+            return ""
+        try:
+            registry = build_production_registry(app_config.skill_manifest_path)
+            # Prefer a skill named after the preset; otherwise the first skill.
+            skill_name = request.preset if registry.get(request.preset) else None
+            if skill_name is None:
+                skills = registry.all()
+                skill_name = skills[0].name if skills else None
+            if not skill_name:
+                return ""
+            resolved = registry.resolve(skill_name)
+            trace_events.append(
+                TraceEvent(
+                    event="skill.resolved",
+                    node="harness",
+                    status="injected",
+                    metadata={
+                        "skill": resolved.name,
+                        "risk_level": resolved.risk_level,
+                        "requires_approval": resolved.requires_approval,
+                        "allowed_tools": resolved.allowed_tools,
+                    },
+                )
+            )
+            return resolved.system_instructions
+        except (KeyError, ValueError, OSError):
+            return ""
+
+    def _resolve_long_term_memory(self, request: WorkflowRequest) -> list[str]:
+        """Retrieve durable long-term memory for the request (Module 4, opt-in).
+
+        Only runs when ``enable_context_compression`` is on. Uses the default
+        in-memory long-term store so no external service is required; a real
+        deployment can swap in :class:`SQLiteLongTermMemory` or a vector store.
+        """
+        if not app_config.enable_context_compression:
+            return []
+        store = InMemoryLongTermMemory()
+        return store.retrieve(request.goal[:80], top_k=3)
 
     def _harness_metadata(self, request: WorkflowRequest, prompt_version: str) -> AgentHarnessMetadata:
         modalities = ["text"]
@@ -448,6 +517,7 @@ class AllCallAllAgentHarness:
                             [event for event in role_events if event.event == "tool.call" and event.tool_name]
                         ),
                     ),
+                    termination_signal=result.termination_signal,
                 )
             )
         return traces

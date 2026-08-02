@@ -20,6 +20,8 @@ summarizer can be injected for production use.
 
 from __future__ import annotations
 
+import sqlite3
+
 from dataclasses import dataclass, field
 from typing import Callable, Protocol, runtime_checkable
 
@@ -133,3 +135,89 @@ class InMemoryLongTermMemory:
     def retrieve(self, query: str, top_k: int = 5) -> list[str]:
         del query
         return list(self._data.values())[: max(0, top_k)]
+
+
+class SQLiteLongTermMemory:
+    """SQLite-backed long-term memory store (Module 4, L2 durable memory).
+
+    Complements :class:`InMemoryLongTermMemory`: it persists across runs within a
+    process (or to a file) and tracks an ``access_count`` so frequently recalled
+    memories surface first. Only instantiated when context compression is
+    enabled, so it never affects the default (legacy) code path.
+
+    The optional ``embedding`` BLOB is accepted for a future vector-similarity
+    retrieval path; today retrieval is deterministic keyword + recency ranked.
+    """
+
+    def __init__(self, db_path: str = ":memory:") -> None:
+        # check_same_thread=False: the harness may be invoked from worker threads
+        # (see _invoke_executor); a shared connection is safe for the small,
+        # short-lived read/write workload here.
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS memories (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                embedding BLOB,
+                created_at REAL DEFAULT (strftime('%s','now')),
+                updated_at REAL DEFAULT (strftime('%s','now')),
+                access_count INTEGER DEFAULT 0
+            )
+            """
+        )
+        self._conn.commit()
+
+    def put(self, key: str, value: str, embedding: list[float] | None = None) -> None:
+        """Insert or upsert a memory entry, bumping its access count on conflict."""
+        self._conn.execute(
+            """
+            INSERT INTO memories (key, value, embedding, access_count)
+            VALUES (?, ?, ?, 1)
+            ON CONFLICT(key) DO UPDATE SET
+                value=excluded.value,
+                embedding=COALESCE(excluded.embedding, memories.embedding),
+                updated_at=strftime('%s','now'),
+                access_count=memories.access_count + 1
+            """,
+            (key, value, _pack_embedding(embedding)),
+        )
+        self._conn.commit()
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[str]:
+        """Keyword + recency ranked retrieval; bumps access count on hit."""
+        like = f"%{query}%"
+        rows = self._conn.execute(
+            """
+            SELECT value FROM memories
+            WHERE key LIKE ? OR value LIKE ?
+            ORDER BY access_count DESC, updated_at DESC
+            LIMIT ?
+            """,
+            (like, like, max(0, top_k)),
+        ).fetchall()
+        results = [row[0] for row in rows]
+        if results:
+            # Reflect that these memories were recalled (cheap, batched update).
+            self._conn.execute(
+                "UPDATE memories SET access_count = access_count + 1 WHERE value = ?", (results[0],)
+            )
+            self._conn.commit()
+        return results
+
+    def access_count(self, key: str) -> int:
+        """Return how many times a memory has been accessed (audit / tests)."""
+        row = self._conn.execute("SELECT access_count FROM memories WHERE key = ?", (key,)).fetchone()
+        return int(row[0]) if row else 0
+
+    def close(self) -> None:
+        self._conn.close()
+
+
+def _pack_embedding(embedding: list[float] | None) -> bytes | None:
+    """Pack a float vector into a BLOB (little-endian doubles), or None."""
+    if not embedding:
+        return None
+    import struct
+
+    return struct.pack(f"<{len(embedding)}d", *embedding)

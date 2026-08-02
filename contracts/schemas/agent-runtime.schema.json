@@ -469,6 +469,13 @@
         "default": "",
         "title": "Model History",
         "type": "string"
+      },
+      "long_term_memory": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Long Term Memory",
+        "type": "array"
       }
     },
     "required": [
@@ -1054,6 +1061,17 @@
           },
           "budget": {
             "$ref": "#/$defs/LoopBudget"
+          },
+          "termination_signal": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TerminationSignal"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -1103,6 +1121,70 @@
           }
         },
         "title": "MemoryReflection",
+        "type": "object"
+      },
+      "OutputDecision": {
+        "description": "Single source of truth for the two-tier CheckAgent review (Module 3).\n\nAggregates the L1 quality gate (``quality_check``) and L2 safety gate\n(``safety_check``) outcomes into one auditable, serializable object that\nis attached to the :class:`WorkflowResponse` and persisted in checkpoints.\nAll fields are Optional-with-default so old checkpoints deserialize cleanly.",
+        "properties": {
+          "final_verdict": {
+            "default": "accept",
+            "enum": [
+              "accept",
+              "reject",
+              "escalate"
+            ],
+            "title": "Final Verdict",
+            "type": "string"
+          },
+          "l1_decision": {
+            "default": "",
+            "title": "L1 Decision",
+            "type": "string"
+          },
+          "l2_decision": {
+            "default": "",
+            "title": "L2 Decision",
+            "type": "string"
+          },
+          "revision_count": {
+            "default": 0,
+            "title": "Revision Count",
+            "type": "integer"
+          },
+          "quality_trend": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Quality Trend",
+            "type": "array"
+          },
+          "confidence_trajectory": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Confidence Trajectory",
+            "type": "array"
+          },
+          "check_log": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Check Log",
+            "type": "array"
+          },
+          "total_review_cycles": {
+            "default": 1,
+            "title": "Total Review Cycles",
+            "type": "integer"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          }
+        },
+        "title": "OutputDecision",
         "type": "object"
       },
       "RetrievalAttempt": {
@@ -1358,6 +1440,17 @@
             },
             "title": "React Trace",
             "type": "array"
+          },
+          "termination_signal": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TerminationSignal"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -1408,6 +1501,79 @@
         },
         "title": "RouteDecision",
         "type": "object"
+      },
+      "TerminationSignal": {
+        "description": "Carries the reason, trigger, and metrics of a ReAct loop termination.\n\nAttached to every :class:`RoleResult` so downstream projection\n(``LoopTrace``) and eval can reason about *why* the loop stopped and how\nmany iterations were saved versus the configured ``max_iterations``.",
+        "properties": {
+          "triggered": {
+            "default": false,
+            "title": "Triggered",
+            "type": "boolean"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TerminationTrigger"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "goal_score": {
+            "default": 0.0,
+            "title": "Goal Score",
+            "type": "number"
+          },
+          "confidence_at_exit": {
+            "default": 0.0,
+            "title": "Confidence At Exit",
+            "type": "number"
+          },
+          "confidence_history": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Confidence History",
+            "type": "array"
+          },
+          "iterations_used": {
+            "default": 0,
+            "title": "Iterations Used",
+            "type": "integer"
+          },
+          "iterations_saved": {
+            "default": 0,
+            "title": "Iterations Saved",
+            "type": "integer"
+          },
+          "citations_found": {
+            "default": 0,
+            "title": "Citations Found",
+            "type": "integer"
+          }
+        },
+        "title": "TerminationSignal",
+        "type": "object"
+      },
+      "TerminationTrigger": {
+        "description": "Deterministic reason a bounded ReAct loop stopped (Module 1).\n\n``MAX_ITERATIONS`` is the hard backstop that always fires when no earlier\nsignal triggers; the others are opt-in early-exit signals gated behind\n``enable_early_termination`` so default behavior is unchanged.",
+        "enum": [
+          "goal_achieved",
+          "confidence_plateau",
+          "checkagent_early_stop",
+          "max_iterations",
+          "citation_satisfied",
+          "tool_error"
+        ],
+        "title": "TerminationTrigger",
+        "type": "string"
       },
       "ToolProposal": {
         "properties": {
@@ -1682,6 +1848,24 @@
       },
       "risk_assessment": {
         "$ref": "#/$defs/RiskAssessment"
+      },
+      "output_decision": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/OutputDecision"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "termination_signals": {
+        "items": {
+          "$ref": "#/$defs/TerminationSignal"
+        },
+        "title": "Termination Signals",
+        "type": "array"
       },
       "error": {
         "default": "",
@@ -2656,6 +2840,79 @@
         },
         "title": "LoopStep",
         "type": "object"
+      },
+      "TerminationSignal": {
+        "description": "Carries the reason, trigger, and metrics of a ReAct loop termination.\n\nAttached to every :class:`RoleResult` so downstream projection\n(``LoopTrace``) and eval can reason about *why* the loop stopped and how\nmany iterations were saved versus the configured ``max_iterations``.",
+        "properties": {
+          "triggered": {
+            "default": false,
+            "title": "Triggered",
+            "type": "boolean"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TerminationTrigger"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "goal_score": {
+            "default": 0.0,
+            "title": "Goal Score",
+            "type": "number"
+          },
+          "confidence_at_exit": {
+            "default": 0.0,
+            "title": "Confidence At Exit",
+            "type": "number"
+          },
+          "confidence_history": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Confidence History",
+            "type": "array"
+          },
+          "iterations_used": {
+            "default": 0,
+            "title": "Iterations Used",
+            "type": "integer"
+          },
+          "iterations_saved": {
+            "default": 0,
+            "title": "Iterations Saved",
+            "type": "integer"
+          },
+          "citations_found": {
+            "default": 0,
+            "title": "Citations Found",
+            "type": "integer"
+          }
+        },
+        "title": "TerminationSignal",
+        "type": "object"
+      },
+      "TerminationTrigger": {
+        "description": "Deterministic reason a bounded ReAct loop stopped (Module 1).\n\n``MAX_ITERATIONS`` is the hard backstop that always fires when no earlier\nsignal triggers; the others are opt-in early-exit signals gated behind\n``enable_early_termination`` so default behavior is unchanged.",
+        "enum": [
+          "goal_achieved",
+          "confidence_plateau",
+          "checkagent_early_stop",
+          "max_iterations",
+          "citation_satisfied",
+          "tool_error"
+        ],
+        "title": "TerminationTrigger",
+        "type": "string"
       }
     },
     "properties": {
@@ -2693,6 +2950,17 @@
       },
       "budget": {
         "$ref": "#/$defs/LoopBudget"
+      },
+      "termination_signal": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TerminationSignal"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
       }
     },
     "required": [

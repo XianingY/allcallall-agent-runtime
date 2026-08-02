@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -115,6 +116,7 @@ class MeetingBriefRequest(BaseModel):
     max_iterations: dict[str, int] = Field(default_factory=dict)
     agentic_rag: AgenticRAGConfig = Field(default_factory=AgenticRAGConfig)
     model_history: str = ""  # bounded history injected by context compression
+    long_term_memory: list[str] = Field(default_factory=list)  # L2 retrieved durable memory
 
     @field_validator(
         "messages",
@@ -277,6 +279,42 @@ class LoopTrace(BaseModel):
     stop_reason: LoopStopReason = "completed"
     completed: bool = True
     budget: LoopBudget = Field(default_factory=LoopBudget)
+    termination_signal: TerminationSignal | None = None
+
+
+class TerminationTrigger(str, Enum):
+    """Deterministic reason a bounded ReAct loop stopped (Module 1).
+
+    ``MAX_ITERATIONS`` is the hard backstop that always fires when no earlier
+    signal triggers; the others are opt-in early-exit signals gated behind
+    ``enable_early_termination`` so default behavior is unchanged.
+    """
+
+    GOAL_ACHIEVED = "goal_achieved"
+    CONFIDENCE_PLATEAU = "confidence_plateau"
+    CHECKAGENT_EARLY_STOP = "checkagent_early_stop"
+    MAX_ITERATIONS = "max_iterations"
+    CITATION_SATISFIED = "citation_satisfied"
+    TOOL_ERROR = "tool_error"
+
+
+class TerminationSignal(BaseModel):
+    """Carries the reason, trigger, and metrics of a ReAct loop termination.
+
+    Attached to every :class:`RoleResult` so downstream projection
+    (``LoopTrace``) and eval can reason about *why* the loop stopped and how
+    many iterations were saved versus the configured ``max_iterations``.
+    """
+
+    triggered: bool = False
+    trigger: TerminationTrigger | None = None
+    reason: str = ""
+    goal_score: float = 0.0
+    confidence_at_exit: float = 0.0
+    confidence_history: list[float] = Field(default_factory=list)
+    iterations_used: int = 0
+    iterations_saved: int = 0
+    citations_found: int = 0
 
 
 class RouteDecision(BaseModel):
@@ -315,6 +353,27 @@ class RoleResult(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     snippets: list[str] = Field(default_factory=list)
     react_trace: list[TraceEvent] = Field(default_factory=list)
+    termination_signal: TerminationSignal | None = None
+
+
+class OutputDecision(BaseModel):
+    """Single source of truth for the two-tier CheckAgent review (Module 3).
+
+    Aggregates the L1 quality gate (``quality_check``) and L2 safety gate
+    (``safety_check``) outcomes into one auditable, serializable object that
+    is attached to the :class:`WorkflowResponse` and persisted in checkpoints.
+    All fields are Optional-with-default so old checkpoints deserialize cleanly.
+    """
+
+    final_verdict: Literal["accept", "reject", "escalate"] = "accept"
+    l1_decision: str = ""  # PASS | REVISE | ESCALATE
+    l2_decision: str = ""  # PASS | ESCALATE
+    revision_count: int = 0
+    quality_trend: list[str] = Field(default_factory=list)
+    confidence_trajectory: list[float] = Field(default_factory=list)
+    check_log: list[dict[str, Any]] = Field(default_factory=list)
+    total_review_cycles: int = 1
+    rationale: str = ""
 
 
 class ToolProposal(BaseModel):
@@ -397,6 +456,8 @@ class MeetingBriefResponse(BaseModel):
     graph_expansion: GraphExpansion = Field(default_factory=GraphExpansion)
     memory_reflection: MemoryReflection = Field(default_factory=MemoryReflection)
     risk_assessment: RiskAssessment = Field(default_factory=RiskAssessment)
+    output_decision: OutputDecision | None = None
+    termination_signals: list[TerminationSignal] = Field(default_factory=list)
     error: str = ""
 
 

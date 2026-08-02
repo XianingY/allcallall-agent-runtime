@@ -7,6 +7,7 @@ from typing import Any
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 
+from .config import config as app_config
 from .state import GraphState
 from .nodes import (
     approval_gate,
@@ -29,6 +30,32 @@ from .nodes import (
 )
 from .nodes.check import route_quality
 from .nodes.retrieval import build_evidence_pack, grounding_check, merge, sufficiency_gate
+from .nodes.role_router import next_role_after, route_roles
+
+# Possible targets of the dynamic role-router conditional edges. Every router
+# edge may resolve to any role node or straight to ``merge`` (when no further
+# role is scheduled), so all five must appear in each edge's path map.
+_ROLE_TARGETS: list[str] = ["searcher", "memory_agent", "synthesize", "risk_analyst", "merge"]
+
+
+def _route_first(state: GraphState) -> str:
+    return next_role_after(state, None)
+
+
+def _route_after_searcher(state: GraphState) -> str:
+    return next_role_after(state, "searcher")
+
+
+def _route_after_memory_agent(state: GraphState) -> str:
+    return next_role_after(state, "memory_agent")
+
+
+def _route_after_synthesize(state: GraphState) -> str:
+    return next_role_after(state, "synthesize")
+
+
+def _route_after_risk_analyst(state: GraphState) -> str:
+    return next_role_after(state, "risk_analyst")
 
 
 def build_workflow_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Any:
@@ -36,6 +63,12 @@ def build_workflow_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -
 
     When ``checkpointer`` is provided (e.g. the MySQL ``CheckpointSaver``), the
     compiled graph gains durable, resumable checkpoints keyed by thread id.
+
+    The role chain (``decompose -> searcher -> memory_agent -> synthesize ->
+    risk_analyst -> merge``) is static by default. When
+    ``app_config.enable_role_router`` is True, a ``role_router`` node with
+    conditional edges is inserted so clearly-redundant roles (e.g. the risk
+    analyst for ``context_qa``) can be skipped while still reaching ``merge``.
     """
     graph = StateGraph(GraphState)
     graph.add_node("collect_context", collect_context)
@@ -59,6 +92,7 @@ def build_workflow_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -
     graph.add_node("safety_check", safety_check)
     graph.add_node("approval_gate", approval_gate)
     graph.add_node("finalize", finalize)
+    graph.add_node("role_router", route_roles)
     graph.set_entry_point("collect_context")
     graph.add_edge("collect_context", "retrieval_planner")
     graph.add_edge("retrieval_planner", "retrieval_loop")
@@ -66,12 +100,25 @@ def build_workflow_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -
     graph.add_edge("retrieve_context", "rerank_context")
     graph.add_edge("rerank_context", "evidence_pack")
     graph.add_edge("evidence_pack", "sufficiency_gate")
-    graph.add_edge("sufficiency_gate", "decompose")
-    graph.add_edge("decompose", "searcher")
-    graph.add_edge("searcher", "memory_agent")
-    graph.add_edge("memory_agent", "synthesize")
-    graph.add_edge("synthesize", "risk_analyst")
-    graph.add_edge("risk_analyst", "merge")
+
+    if app_config.enable_role_router:
+        # Dynamic chain: route roles based on the computed allocation.
+        graph.add_edge("sufficiency_gate", "decompose")
+        graph.add_edge("decompose", "role_router")
+        graph.add_conditional_edges("role_router", _route_first, _ROLE_TARGETS)
+        graph.add_conditional_edges("searcher", _route_after_searcher, _ROLE_TARGETS)
+        graph.add_conditional_edges("memory_agent", _route_after_memory_agent, _ROLE_TARGETS)
+        graph.add_conditional_edges("synthesize", _route_after_synthesize, _ROLE_TARGETS)
+        graph.add_conditional_edges("risk_analyst", _route_after_risk_analyst, _ROLE_TARGETS)
+    else:
+        # Static chain (legacy behavior): every role runs in fixed order.
+        graph.add_edge("sufficiency_gate", "decompose")
+        graph.add_edge("decompose", "searcher")
+        graph.add_edge("searcher", "memory_agent")
+        graph.add_edge("memory_agent", "synthesize")
+        graph.add_edge("synthesize", "risk_analyst")
+        graph.add_edge("risk_analyst", "merge")
+
     graph.add_edge("merge", "grounding_check")
     graph.add_edge("grounding_check", "memory_reflection")
     graph.add_edge("memory_reflection", "propose_tools")
