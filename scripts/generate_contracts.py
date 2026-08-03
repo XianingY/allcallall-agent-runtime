@@ -65,6 +65,7 @@ def build_contracts() -> dict[str, dict[str, Any]]:
             "GraphExpansion",
             "MemoryReflection",
             "RiskAssessment",
+            "BadcaseRecord",
         ],
     )
     clear_app_modules()

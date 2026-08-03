@@ -23,6 +23,7 @@ from .providers.base import LLMProvider
 from .skill_registry import build_production_registry
 from .tool_layer import GoToolBridgeLayer, ToolLayer
 from .async_tool_queue import AsyncToolQueue, get_default_tool_queue, priority_to_int
+from .badcase import BadcaseStore, classify_badcase
 from .models import (
     AgentHarnessMetadata,
     AgentRunRequest,
@@ -137,6 +138,7 @@ class AllCallAllAgentHarness:
         tool_layer: ToolLayer | None = None,
         provider: LLMProvider | None = None,
         tool_queue: AsyncToolQueue | None = None,
+        badcase_store: BadcaseStore | None = None,
     ) -> None:
         self.checkpoint_store = checkpoint_store or _default_checkpoint_store()
         self.tool_layer = tool_layer or GoToolBridgeLayer()
@@ -145,6 +147,11 @@ class AllCallAllAgentHarness:
         # by a run are enqueued here (and executed by the background worker).
         # Otherwise the legacy behavior is preserved (proposals returned to caller).
         self._tool_queue = tool_queue or (get_default_tool_queue() if app_config.enable_tool_queue else None)
+        # Optional injected badcase store; lazily built from config on first
+        # capture so a harness constructed without one is still cheap.
+        self._badcase_store = badcase_store
+        self._badcase_store_cache: BadcaseStore | None = None
+        self._badcase_store_lock = Lock()
         self._graph: Any | None = None
         self._graph_lock = Lock()
 
@@ -241,7 +248,9 @@ class AllCallAllAgentHarness:
                 ],
             )
 
-        return self._response_from_graph_result(request, provider_name, result)
+        response = self._response_from_graph_result(request, provider_name, result)
+        self._capture_badcase(request, response)
+        return response
 
     def _enqueue_proposals(
         self, request: WorkflowRequest, proposals: list[object]
@@ -268,8 +277,33 @@ class AllCallAllAgentHarness:
                 queue_name=getattr(proposal, "queue_name", "agent_writebacks"),
                 priority=priority_to_int(getattr(proposal, "priority", "normal")),
                 rate_limit_key=getattr(proposal, "rate_limit_key", ""),
-                max_attempts=getattr(proposal, "max_attempts", 3),
+                    max_attempts=getattr(proposal, "max_attempts", 3),
             )
+
+    def _get_badcase_store(self) -> BadcaseStore:
+        """Return the injected store, lazily constructing one from config."""
+        if self._badcase_store is not None:
+            return self._badcase_store
+        with self._badcase_store_lock:
+            if self._badcase_store_cache is None:
+                self._badcase_store_cache = BadcaseStore(app_config.badcase_sqlite_path)
+            return self._badcase_store_cache
+
+    def _capture_badcase(self, request: WorkflowRequest, response: WorkflowResponse) -> None:
+        """Classify a run result and persist it when it is a badcase.
+
+        No-op unless ``enable_badcase_capture`` is on. Failures here are swallowed
+        so badcase capture can never break or slow down a workflow run.
+        """
+        if not app_config.enable_badcase_capture:
+            return
+        try:
+            record = classify_badcase(request, response)
+            if record is None:
+                return
+            self._get_badcase_store().save(record)
+        except Exception:
+            return
 
     def _failure_response(
         self,
@@ -279,7 +313,7 @@ class AllCallAllAgentHarness:
         trace: list[TraceEvent],
     ) -> WorkflowResponse:
         prompt_version = prompt_version_for(request)
-        return WorkflowResponse(
+        response = WorkflowResponse(
             status="failed",
             provider=provider_name,
             error=error,
@@ -297,6 +331,8 @@ class AllCallAllAgentHarness:
             ),
             stop_reason="runtime_error",
         )
+        self._capture_badcase(request, response)
+        return response
 
     def _response_from_graph_result(
         self,

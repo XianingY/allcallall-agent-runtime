@@ -52,6 +52,12 @@ class AgentRuntimeConfig(BaseSettings):
     checkpoint_mysql_pool_size: int = 4  # connections pooled per MySQLCheckpointSaver
     checkpoint_sqlite_path: str = ":memory:"  # file path or ":memory:" for reproducible test envs
 
+    # Badcase capture (Part 1): auto-classify workflow failures into a SQLite
+    # store for later human labeling and SFT reflow. Off by default — when
+    # enabled, every run result is classified and persisted (never breaking runs).
+    enable_badcase_capture: bool = False
+    badcase_sqlite_path: str = "badcase.db"  # file path or ":memory:" for tests
+
     # Prompt settings
     prompt_version: str = ""
     enable_grounding_check: bool = False

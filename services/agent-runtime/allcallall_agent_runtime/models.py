@@ -537,3 +537,57 @@ class WorkflowEvalReport(BaseModel):
     provider: str = "rules"
     summary: WorkflowEvalSummary = Field(default_factory=WorkflowEvalSummary)
     cases: list[WorkflowEvalCaseResult] = Field(default_factory=list)
+
+
+class BadcaseSource(str, Enum):
+    AUTO_REVIEW = "auto_review"          # L1/L2 CheckAgent verdict
+    AUTO_RUNTIME = "auto_runtime"        # failed/timeout/grounding
+    SAMPLING_AUDIT = "sampling_audit"    # offline human audit
+    USER_FEEDBACK = "user_feedback"      # Phase 2: user thumbs-down / dismiss
+
+
+class BadcaseCategory(str, Enum):
+    RETRIEVAL_MISS = "retrieval_miss"            # 检索漏召/错召
+    HALLUCINATION = "hallucination"              # 引用不实/编造
+    ROUTE_ERROR = "route_error"                  # 意图路由错误
+    APPROVAL_BYPASS = "approval_bypass"          # 写工具绕过审批
+    TIMEOUT = "timeout"                          # 超时
+    REVIEW_REJECT = "review_reject"              # L1/L2 拒绝
+    USER_DECLINE = "user_decline"                # 用户不采纳（Phase 2）
+    UNSUPPORTED_MISHANDLE = "unsupported_mishandle"  # 超范围请求处理不当
+    RUNTIME_ERROR = "runtime_error"              # 通用运行时失败（自动）
+
+
+class BadcaseSeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class BadcaseRecord(BaseModel):
+    """A captured failure sample for labeling and SFT reflow (Part 1).
+
+    Stores the full request/response snapshot so a badcase can be replayed or
+    converted into a training sample later. ``auto_signals`` records the
+    deterministic judgment evidence; human-assigned fields (``label_*``) are
+    filled during labeling and gate ``sft_eligible``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    created_at: str
+    organization_id: int
+    workflow_run_id: int
+    source: BadcaseSource
+    category: BadcaseCategory
+    severity: BadcaseSeverity
+    request: WorkflowRequest
+    response: WorkflowResponse
+    auto_signals: dict[str, Any] = Field(default_factory=dict)
+    label_corrected_response: WorkflowResponse | None = None
+    label_note: str = ""
+    labeled_by: str = ""
+    labeled_at: str | None = None
+    status: Literal["open", "labeled", "approved", "training", "resolved"] = "open"
+    sft_eligible: bool = False
