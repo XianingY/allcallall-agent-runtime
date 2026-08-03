@@ -591,3 +591,63 @@ class BadcaseRecord(BaseModel):
     labeled_at: str | None = None
     status: Literal["open", "labeled", "approved", "training", "resolved"] = "open"
     sft_eligible: bool = False
+
+
+class ChatMessage(BaseModel):
+    """A single turn in an SFT chat sample (Part 2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class SFTSample(BaseModel):
+    """A labeled badcase converted into a supervised fine-tuning sample (Part 2).
+
+    Standard ``messages`` format so the JSONL export can be fed directly to an
+    external fine-tuning platform. ``tags`` carry the badcase category/severity
+    so training can stratify or reweight by failure type.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    badcase_id: str
+    model_version: str
+    route: str
+    system_prompt: str
+    messages: list[ChatMessage]
+    tags: list[str] = Field(default_factory=list)
+    quality_score: float = 0
+    created_at: str
+
+
+class ModelVersion(BaseModel):
+    """A trained model artifact produced from badcase SFT reflow (Part 3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str
+    base_version: str = ""
+    trained_from_badcase_ids: list[str] = Field(default_factory=list)
+    artifact_uri: str = ""
+    created_at: str
+
+
+class EvalRun(BaseModel):
+    """One online-evaluation run comparing a candidate model against a baseline (Part 3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    model_version: str
+    baseline_version: str
+    dataset_ref: str
+    dataset_kind: Literal["golden", "live_sample"]
+    metrics: WorkflowEvalSummary = Field(default_factory=WorkflowEvalSummary)
+    rag_metrics: dict[str, float] = Field(default_factory=dict)
+    delta_vs_baseline: dict[str, float] = Field(default_factory=dict)
+    target_badcase_categories: list[BadcaseCategory] = Field(default_factory=list)
+    improved: bool = False
+    created_at: str

@@ -12,7 +12,7 @@ export LANGSMITH_DISABLED ?= true
 
 PYTEST ?= $(PYTHON) -m pytest -p no:langsmith
 
-.PHONY: venv install-dev test lint typecheck contracts contracts-check agent-eval rag-eval portfolio-eval ai-agent-portfolio-eval verify docker-build run-agent-runtime run-rag-runtime
+.PHONY: venv install-dev test lint typecheck contracts contracts-check agent-eval rag-eval portfolio-eval ai-agent-portfolio-eval sft-dataset online-eval verify docker-build run-agent-runtime run-rag-runtime
 
 venv:
 	@if [ ! -x "$(PYTHON)" ]; then $(SYSTEM_PYTHON) -m venv $(VENV); fi
@@ -54,6 +54,15 @@ contracts-check:
 agent-eval:
 	cd services/agent-runtime && $(PYTHON) -m allcallall_agent_runtime.eval_runner --out evals/reports
 
+# Part 2: export labeled badcases as an SFT JSONL dataset (defaults to an empty
+# db in CI, which harmlessly exports 0 samples).
+sft-dataset:
+	$(PYTHON) scripts/export_sft.py --out evals/sft_dataset.jsonl
+
+# Part 3: run online eval for a candidate model against the stored baseline.
+online-eval:
+	$(PYTHON) scripts/run_online_eval.py --baseline-db eval_runs.db
+
 rag-eval:
 	cd services/rag-runtime && $(PYTHON) -m allcallall_rag_runtime.eval_runner --out evals/reports
 
@@ -62,7 +71,7 @@ portfolio-eval:
 
 ai-agent-portfolio-eval: portfolio-eval
 
-verify: test lint typecheck contracts-check agent-eval rag-eval
+verify: test lint typecheck contracts-check agent-eval rag-eval sft-dataset
 
 docker-build:
 	docker build -f services/agent-runtime/Dockerfile -t allcallall-agent-runtime:local .

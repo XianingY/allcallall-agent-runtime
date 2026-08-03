@@ -5140,5 +5140,336 @@
     ],
     "title": "BadcaseRecord",
     "type": "object"
+  },
+  "ChatMessage": {
+    "additionalProperties": false,
+    "description": "A single turn in an SFT chat sample (Part 2).",
+    "properties": {
+      "role": {
+        "enum": [
+          "system",
+          "user",
+          "assistant"
+        ],
+        "title": "Role",
+        "type": "string"
+      },
+      "content": {
+        "title": "Content",
+        "type": "string"
+      }
+    },
+    "required": [
+      "role",
+      "content"
+    ],
+    "title": "ChatMessage",
+    "type": "object"
+  },
+  "SFTSample": {
+    "$defs": {
+      "ChatMessage": {
+        "additionalProperties": false,
+        "description": "A single turn in an SFT chat sample (Part 2).",
+        "properties": {
+          "role": {
+            "enum": [
+              "system",
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "ChatMessage",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "A labeled badcase converted into a supervised fine-tuning sample (Part 2).\n\nStandard ``messages`` format so the JSONL export can be fed directly to an\nexternal fine-tuning platform. ``tags`` carry the badcase category/severity\nso training can stratify or reweight by failure type.",
+    "properties": {
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "badcase_id": {
+        "title": "Badcase Id",
+        "type": "string"
+      },
+      "model_version": {
+        "title": "Model Version",
+        "type": "string"
+      },
+      "route": {
+        "title": "Route",
+        "type": "string"
+      },
+      "system_prompt": {
+        "title": "System Prompt",
+        "type": "string"
+      },
+      "messages": {
+        "items": {
+          "$ref": "#/$defs/ChatMessage"
+        },
+        "title": "Messages",
+        "type": "array"
+      },
+      "tags": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      },
+      "quality_score": {
+        "default": 0,
+        "title": "Quality Score",
+        "type": "number"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "badcase_id",
+      "model_version",
+      "route",
+      "system_prompt",
+      "messages",
+      "created_at"
+    ],
+    "title": "SFTSample",
+    "type": "object"
+  },
+  "ModelVersion": {
+    "additionalProperties": false,
+    "description": "A trained model artifact produced from badcase SFT reflow (Part 3).",
+    "properties": {
+      "version": {
+        "title": "Version",
+        "type": "string"
+      },
+      "base_version": {
+        "default": "",
+        "title": "Base Version",
+        "type": "string"
+      },
+      "trained_from_badcase_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Trained From Badcase Ids",
+        "type": "array"
+      },
+      "artifact_uri": {
+        "default": "",
+        "title": "Artifact Uri",
+        "type": "string"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "version",
+      "created_at"
+    ],
+    "title": "ModelVersion",
+    "type": "object"
+  },
+  "EvalRun": {
+    "$defs": {
+      "BadcaseCategory": {
+        "enum": [
+          "retrieval_miss",
+          "hallucination",
+          "route_error",
+          "approval_bypass",
+          "timeout",
+          "review_reject",
+          "user_decline",
+          "unsupported_mishandle",
+          "runtime_error"
+        ],
+        "title": "BadcaseCategory",
+        "type": "string"
+      },
+      "WorkflowEvalSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "total_cases": {
+            "default": 0,
+            "title": "Total Cases",
+            "type": "integer"
+          },
+          "passed_cases": {
+            "default": 0,
+            "title": "Passed Cases",
+            "type": "integer"
+          },
+          "task_success_rate": {
+            "default": 0,
+            "title": "Task Success Rate",
+            "type": "number"
+          },
+          "citation_grounding_rate": {
+            "default": 0,
+            "title": "Citation Grounding Rate",
+            "type": "number"
+          },
+          "tool_intent_match_rate": {
+            "default": 0,
+            "title": "Tool Intent Match Rate",
+            "type": "number"
+          },
+          "approval_safety_rate": {
+            "default": 0,
+            "title": "Approval Safety Rate",
+            "type": "number"
+          },
+          "unsupported_claim_guard_rate": {
+            "default": 0,
+            "title": "Unsupported Claim Guard Rate",
+            "type": "number"
+          },
+          "prompt_schema_valid_rate": {
+            "default": 0,
+            "title": "Prompt Schema Valid Rate",
+            "type": "number"
+          },
+          "route_accuracy": {
+            "default": 0,
+            "title": "Route Accuracy",
+            "type": "number"
+          },
+          "loop_completion_rate": {
+            "default": 0,
+            "title": "Loop Completion Rate",
+            "type": "number"
+          },
+          "stop_reason_valid_rate": {
+            "default": 0,
+            "title": "Stop Reason Valid Rate",
+            "type": "number"
+          },
+          "memory_reflection_precision": {
+            "default": 0,
+            "title": "Memory Reflection Precision",
+            "type": "number"
+          },
+          "grounding_check_rate": {
+            "default": 0,
+            "title": "Grounding Check Rate",
+            "type": "number"
+          },
+          "retrieval_refinement_success_rate": {
+            "default": 0,
+            "title": "Retrieval Refinement Success Rate",
+            "type": "number"
+          },
+          "citation_coverage_rate": {
+            "default": 0,
+            "title": "Citation Coverage Rate",
+            "type": "number"
+          },
+          "max_iteration_compliance_rate": {
+            "default": 0,
+            "title": "Max Iteration Compliance Rate",
+            "type": "number"
+          },
+          "unnecessary_tool_call_rate": {
+            "default": 0,
+            "title": "Unnecessary Tool Call Rate",
+            "type": "number"
+          }
+        },
+        "title": "WorkflowEvalSummary",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "One online-evaluation run comparing a candidate model against a baseline (Part 3).",
+    "properties": {
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "model_version": {
+        "title": "Model Version",
+        "type": "string"
+      },
+      "baseline_version": {
+        "title": "Baseline Version",
+        "type": "string"
+      },
+      "dataset_ref": {
+        "title": "Dataset Ref",
+        "type": "string"
+      },
+      "dataset_kind": {
+        "enum": [
+          "golden",
+          "live_sample"
+        ],
+        "title": "Dataset Kind",
+        "type": "string"
+      },
+      "metrics": {
+        "$ref": "#/$defs/WorkflowEvalSummary"
+      },
+      "rag_metrics": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "title": "Rag Metrics",
+        "type": "object"
+      },
+      "delta_vs_baseline": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "title": "Delta Vs Baseline",
+        "type": "object"
+      },
+      "target_badcase_categories": {
+        "items": {
+          "$ref": "#/$defs/BadcaseCategory"
+        },
+        "title": "Target Badcase Categories",
+        "type": "array"
+      },
+      "improved": {
+        "default": false,
+        "title": "Improved",
+        "type": "boolean"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "model_version",
+      "baseline_version",
+      "dataset_ref",
+      "dataset_kind",
+      "created_at"
+    ],
+    "title": "EvalRun",
+    "type": "object"
   }
 }
