@@ -155,6 +155,70 @@ class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
         )
         self._transaction_registry_lock = RLock()
         self._transactions_by_execution: dict[TransactionKey, _CheckpointTransaction] = {}
+        # The three checkpoint tables are owned by this saver (the Go migration
+        # only bootstraps the platform schema), so we create them on init rather
+        # than relying on an external migration step. Mirrors SQLiteCheckpointSaver.
+        self._init_schema()
+
+    def _init_schema(self) -> None:
+        """Create the LangGraph checkpoint tables if they do not already exist.
+
+        Runs idempotently on every instance so a freshly provisioned database
+        (e.g. the CI contract MySQL) is usable without a separate migration.
+        """
+        with self._connection() as connection, connection.cursor() as cursor:
+            # Key columns use VARCHAR(150) (per the canonical LangGraph MySQL
+            # schema) so the composite primary keys stay within MySQL's 3072-byte
+            # index cap under utf8mb4 (5 * 150 * 4 + 4 = 3004 bytes for writes).
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS langgraph_checkpoint_threads (
+                    thread_id VARCHAR(150) NOT NULL,
+                    checkpoint_ns VARCHAR(150) NOT NULL DEFAULT '',
+                    current_version BIGINT NOT NULL DEFAULT 0,
+                    updated_at DATETIME(6),
+                    PRIMARY KEY (thread_id, checkpoint_ns)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=DYNAMIC
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS langgraph_checkpoints (
+                    thread_id VARCHAR(150) NOT NULL,
+                    checkpoint_ns VARCHAR(150) NOT NULL DEFAULT '',
+                    checkpoint_id VARCHAR(150) NOT NULL,
+                    parent_checkpoint_id VARCHAR(150),
+                    execution_id VARCHAR(150),
+                    workflow_run_id BIGINT,
+                    agent_run_id BIGINT,
+                    version BIGINT NOT NULL DEFAULT 0,
+                    checkpoint_type VARCHAR(150),
+                    checkpoint_blob LONGBLOB,
+                    metadata_type VARCHAR(150),
+                    metadata_blob LONGBLOB,
+                    created_at DATETIME(6),
+                    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=DYNAMIC
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS langgraph_checkpoint_writes (
+                    thread_id VARCHAR(150) NOT NULL,
+                    checkpoint_ns VARCHAR(150) NOT NULL DEFAULT '',
+                    checkpoint_id VARCHAR(150) NOT NULL,
+                    task_id VARCHAR(150) NOT NULL,
+                    task_path VARCHAR(150) NOT NULL DEFAULT '',
+                    write_index INT NOT NULL,
+                    channel VARCHAR(150) NOT NULL,
+                    value_type VARCHAR(150),
+                    value_blob LONGBLOB,
+                    created_at DATETIME(6),
+                    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, task_path, write_index)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=DYNAMIC
+                """
+            )
+            connection.commit()
 
     @contextmanager
     def _connection(self) -> Iterator[Connection]:

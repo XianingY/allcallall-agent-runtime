@@ -47,6 +47,7 @@ def _labeled_record(category: BadcaseCategory, corrected: MeetingBriefResponse) 
     categories (e.g. UNSUPPORTED_MISHANDLE) are constructed directly with a
     SAMPLING_AUDIT source, since no runtime signal triggers them.
     """
+    record: BadcaseRecord | None
     if category == BadcaseCategory.UNSUPPORTED_MISHANDLE:
         record = BadcaseRecord(
             id=uuid.uuid4().hex,
