@@ -13,3 +13,5 @@ services/*/evals/reports/
 .env.*
 !.env.example
 
+# Local Git worktrees used for isolated development.
+.worktrees/
