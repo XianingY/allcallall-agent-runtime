@@ -12,7 +12,7 @@ export LANGSMITH_DISABLED ?= true
 
 PYTEST ?= $(PYTHON) -m pytest -p no:langsmith
 
-.PHONY: venv install-dev test lint typecheck contracts contracts-check agent-eval rag-eval portfolio-eval ai-agent-portfolio-eval sft-dataset online-eval verify docker-build run-agent-runtime run-rag-runtime
+.PHONY: venv install-dev test lint typecheck docs-check contracts contracts-check agent-eval rag-eval portfolio-eval ai-agent-portfolio-eval sft-dataset online-eval verify docker-build run-agent-runtime run-rag-runtime
 
 venv:
 	@if [ ! -x "$(PYTHON)" ]; then $(SYSTEM_PYTHON) -m venv $(VENV); fi
@@ -45,6 +45,9 @@ typecheck:
 	cd services/interview-mcp && $(PYTHON) -m mypy .
 	cd packages/sdk && $(PYTHON) -m mypy .
 
+docs-check:
+	$(PYTHON) scripts/check_docs.py
+
 contracts:
 	$(PYTHON) scripts/generate_contracts.py
 
@@ -71,7 +74,7 @@ portfolio-eval:
 
 ai-agent-portfolio-eval: portfolio-eval
 
-verify: test lint typecheck contracts-check agent-eval rag-eval sft-dataset
+verify: test lint typecheck docs-check contracts-check agent-eval rag-eval sft-dataset
 
 docker-build:
 	docker build -f services/agent-runtime/Dockerfile -t allcallall-agent-runtime:local .

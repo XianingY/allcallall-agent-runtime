@@ -4,7 +4,7 @@
 
 ## 闭环总览
 
-```
+```text
 [线上 run_workflow]
       │  (opt-in: enable_badcase_capture=true)
       ▼

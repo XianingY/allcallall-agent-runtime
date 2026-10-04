@@ -1,5 +1,7 @@
 # Agent Runtime 深度优化方案
 
+> **Archive status:** Historical material; not part of the maintained product documentation.
+
 > 基于简历描述的 8 大模块改造，核心目标：**让 ReAct 从"固定轮数耗尽"升级为"目标达成即停"的智能循环**，并补齐多 Agent 动态分配、CheckAgent 输出决策、工程验证 Harness 等关键能力缺口。
 
 ---

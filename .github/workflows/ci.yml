@@ -21,6 +21,8 @@ jobs:
         run: make lint
       - name: Typecheck
         run: make typecheck
+      - name: Documentation
+        run: make docs-check
       - name: Contracts
         run: make contracts-check
       - name: Eval
@@ -34,4 +36,3 @@ jobs:
         run: docker build -f services/agent-runtime/Dockerfile -t allcallall-agent-runtime:ci .
       - name: Build RAG Runtime
         run: docker build -f services/rag-runtime/Dockerfile -t allcallall-rag-runtime:ci .
-

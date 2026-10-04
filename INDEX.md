@@ -44,6 +44,7 @@ lives in the main repo: `AllCallAll/INDEX.md`.
 | --- | --- |
 | Eval methodology and current evidence | [`docs/eval-methodology.md`](docs/eval-methodology.md) |
 | Engineering harness and IR metrics (HitRate@5 / MRR / NDCG) | [`docs/engineering-harness.md`](docs/engineering-harness.md) |
+| Badcase capture, SFT export, and online evaluation loop | [`docs/badcase-sft-online-eval.md`](docs/badcase-sft-online-eval.md) |
 | Resume-safe agent metrics wording | [`docs/resume-agent-metrics.md`](docs/resume-agent-metrics.md) |
 | Manual pilot UX sample (illustrative only) | [`docs/manual-pilot-ux-sample.md`](docs/manual-pilot-ux-sample.md) |
 | Generated portfolio eval report (machine-generated) | [`docs/generated-ai-agent-portfolio-eval/portfolio-eval.md`](docs/generated-ai-agent-portfolio-eval/portfolio-eval.md) |
