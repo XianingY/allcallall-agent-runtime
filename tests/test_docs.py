@@ -5,6 +5,16 @@ from scripts.check_docs import (
     check_documentation_tree,
     check_markdown_file,
 )
+from scripts.portfolio_eval import DEFAULT_OUT
+
+CANONICAL_DOCS = {
+    "docs/architecture/overview.md",
+    "docs/architecture/harness.md",
+    "docs/reference/configuration.md",
+    "docs/reference/tool-bridge-protocol.md",
+    "docs/evaluation/methodology.md",
+    "docs/evaluation/engineering-harness.md",
+}
 
 
 def write_files(root: Path, files: dict[str, str]) -> None:
@@ -109,3 +119,26 @@ def test_reports_missing_or_unlinked_governance_files(tmp_path: Path) -> None:
         "SUPPORT.md",
     ):
         assert any(governance_file in failure for failure in failures)
+
+
+def test_canonical_runtime_documents_exist_and_are_indexed() -> None:
+    root = Path(__file__).resolve().parents[1]
+    paths = [root / relative_path for relative_path in sorted(CANONICAL_DOCS)]
+
+    missing = [path.relative_to(root).as_posix() for path in paths if not path.exists()]
+    assert missing == []
+
+    failures = check_documentation_index(
+        root,
+        paths,
+        (root / "docs/README.md").read_text(encoding="utf-8"),
+    )
+    assert failures == []
+
+
+def test_generated_portfolio_report_defaults_to_archive() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    assert DEFAULT_OUT.relative_to(root).as_posix() == (
+        "docs/archive/reports/generated-ai-agent-portfolio-eval"
+    )

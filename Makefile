@@ -70,7 +70,7 @@ rag-eval:
 	cd services/rag-runtime && $(PYTHON) -m allcallall_rag_runtime.eval_runner --out evals/reports
 
 portfolio-eval:
-	$(PYTHON) scripts/portfolio_eval.py --out docs/generated-ai-agent-portfolio-eval
+	$(PYTHON) scripts/portfolio_eval.py --out docs/archive/reports/generated-ai-agent-portfolio-eval
 
 ai-agent-portfolio-eval: portfolio-eval
 

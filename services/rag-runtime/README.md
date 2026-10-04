@@ -29,7 +29,7 @@ Key variables: `PY_RAG_TOOL_BRIDGE_BASE_URL` / `PY_RAG_TOOL_BRIDGE_TOKEN`
 `PY_RAG_MIN_CONFIDENCE`, `PY_RAG_ENABLE_GRAPH_EXPANSION`, and the optional
 Qdrant adapter (`PY_RAG_VECTOR_STORE=qdrant`, `PY_RAG_QDRANT_*`).
 
-Full reference: `../../docs/configuration.md`.
+Full reference: `../../docs/reference/configuration.md`.
 
 ## API
 

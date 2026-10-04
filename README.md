@@ -100,18 +100,19 @@ make rag-eval
 Evaluation results are deterministic regression evidence for the checked
 fixtures, including task completion, grounding, approval safety, retrieval
 refinement, reranking, and insufficient-context handling. They are not claims
-about open-domain model quality. See the [evaluation methodology](docs/eval-methodology.md)
-and [engineering harness](docs/engineering-harness.md) for fixture scope,
+about open-domain model quality. See the [evaluation methodology](docs/evaluation/methodology.md)
+and [engineering harness](docs/evaluation/engineering-harness.md) for fixture scope,
 commands, and interpretation.
 
 ## Documentation
 
 - [Documentation index](docs/README.md)
-- [Architecture](docs/architecture.md)
-- [Harness architecture](docs/harness-architecture.md)
-- [Configuration](docs/configuration.md)
-- [Tool Bridge protocol](docs/tool-bridge-protocol.md)
-- [AllCallAll integration](docs/allcallall-integration.md)
+- [Quick start](docs/getting-started/quick-start.md)
+- [Architecture](docs/architecture/overview.md)
+- [Harness architecture](docs/architecture/harness.md)
+- [Configuration](docs/reference/configuration.md)
+- [Tool Bridge protocol](docs/reference/tool-bridge-protocol.md)
+- [AllCallAll integration](docs/guides/allcallall-integration.md)
 - [Contract governance](contracts/README.md)
 
 `INDEX.md` remains as a compatibility pointer for older links.

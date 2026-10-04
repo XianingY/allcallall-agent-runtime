@@ -14,7 +14,7 @@ from allcallall_rag_runtime.eval_runner import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUT = ROOT / "docs" / "generated-ai-agent-portfolio-eval"
+DEFAULT_OUT = ROOT / "docs" / "archive" / "reports" / "generated-ai-agent-portfolio-eval"
 RAG_FIXTURE = ROOT / "services" / "rag-runtime" / "evals" / "cases.json"
 
 
