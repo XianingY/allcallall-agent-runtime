@@ -1,51 +1,70 @@
 # AllCallAll Agent Runtime
 
-Standalone Python Agent and RAG runtime for AllCallAll.
+[简体中文](README.zh-CN.md) · [Documentation](docs/README.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
-The runtime is intentionally separated from the AllCallAll Go backend:
+AllCallAll Agent Runtime is the standalone Python orchestration and retrieval
+layer for the [AllCallAll](https://github.com/XianingY/allcallall) collaboration
+platform.
 
-- Python owns Agent orchestration, LangGraph workflows, bounded ReAct loops, prompt/provider adapters, Agentic RAG, rerank, grounding checks, traces, citations, tool proposals, and deterministic eval.
-- Go remains the product source of truth for users, organizations, conversations, meetings, transcripts, permissions, approvals, audit logs, and write execution.
+## Why a Separate Runtime
 
-The runtime is designed as a production-grade Agent Runtime Harness rather than a simple MCP/RAG/function-calling demo. It now includes dynamic CHAT/CONSULT/RISK routing, knowledge-graph query expansion, adaptive multi-hop RAG, MemoryAgent reflection, RiskGuardian-style assessment, approval-gated async tool queue metadata, and deterministic eval evidence.
+Model orchestration, retrieval experiments, and evaluation evolve at a
+different pace from product data and authorization. Keeping them in a separate
+repository lets the Python services be built, tested, and released
+independently while preserving a narrow contract with the Go platform.
 
-## Repository Layout
+This repository does not implement the AllCallAll product UI or own durable
+business writes. Those responsibilities remain in the main product repository.
 
-- `services/agent-runtime`: FastAPI + LangGraph Agent Runtime.
-- `services/rag-runtime`: FastAPI Agentic RAG / rerank / grounding service.
-- `packages/shared`: shared Pydantic models and scoring utilities.
-- `packages/sdk`: typed Python client SDK for both services.
-- `contracts`: generated JSON Schemas and golden JSON fixtures.
-- `examples`: Docker Compose and curl examples.
-- `docs`: architecture, protocol, skill, eval, and AllCallAll integration notes.
+## Services and Packages
+
+| Path | Responsibility |
+| --- | --- |
+| `services/agent-runtime/` | FastAPI and LangGraph Agent orchestration service |
+| `services/rag-runtime/` | Retrieval planning, reranking, evidence packs, and grounding service |
+| `services/sandbox-runner/` | Isolated execution worker and supervisor transport |
+| `services/interview-mcp/` | Reference read-only MCP service retained for compatibility |
+| `packages/shared/` | Shared Pydantic contracts, scoring, and runtime utilities |
+| `packages/sdk/` | Typed Python client for Agent and RAG services |
+| `contracts/` | Generated JSON Schemas and golden fixtures |
+| `examples/` | Local Docker Compose and request examples |
+
+## Safety Boundary
+
+The runtime may read authorized context through the Go Tool Bridge. It never
+writes AllCallAll business data directly. Write-capable tools produce
+approval-required proposals; the Go backend validates permissions, records the
+audit trail, and executes approved writes.
+
+Go remains authoritative for users, organizations, conversations, meetings,
+transcripts, permissions, approvals, and audit logs. Python owns orchestration,
+retrieval, grounding, citations, traces, and evaluation.
 
 ## Quick Start
+
+Python 3.11 or newer is required; CI uses Python 3.12.
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 make install-dev
-make verify
+make test
+make lint
+make typecheck
+make contracts-check
 ```
 
-Run services locally:
+Run the local services:
 
 ```bash
 make run-agent-runtime
 make run-rag-runtime
 ```
 
-Or use Docker:
+Or use the example Compose topology:
 
 ```bash
 docker compose -f examples/docker-compose.yml up --build
-```
-
-Tagged releases publish images to GitHub Container Registry:
-
-```text
-ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime:v0.1.0
-ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime:v0.1.0
 ```
 
 ## Runtime APIs
@@ -68,42 +87,48 @@ RAG Runtime:
 - `POST /v1/retrieval/agentic`
 - `POST /v1/grounding/check`
 
-## Runtime Harness Capabilities
+See the service READMEs and generated contracts for request and response
+details.
 
-- Dynamic intent routing chooses `chat`, `consult`, or `risk` before retrieval and records the route in responses and traces.
-- Agentic RAG uses bounded retrieval refinement, source-scope planning, rerank, evidence packs, context sufficiency, and citation grounding.
-- Knowledge-graph expansion infers lightweight evidence edges from retrieved chunks and injects expanded terms into retrieval attempts.
-- Multi-agent workflow roles include Searcher, MemoryAgent, Summarizer, and RiskGuardian-style risk assessment under a supervisor trace.
-- Write tools remain proposal-only, but proposals now carry async queue, retry, rate-limit, idempotency, and dead-letter metadata for Go-side execution.
-
-## Safety Boundary
-
-The runtime never writes AllCallAll business data directly. Read skills may call the Go Tool Bridge. Write skills are returned as approval-required proposals; the Go backend validates, audits, and executes them only after approval.
-
-## Eval
+## Evaluation
 
 ```bash
 make agent-eval
 make rag-eval
 ```
 
-The eval suite is deterministic regression evidence for task completion, citation grounding, approval safety, retrieval refinement, rerank, and insufficient-context handling. It is not an open-domain model-quality benchmark. IR-metric anchors: `HitRate@5 = 0.9667`, `MRR = 0.9083` (see `docs/engineering-harness.md`).
+Evaluation results are deterministic regression evidence for the checked
+fixtures, including task completion, grounding, approval safety, retrieval
+refinement, reranking, and insufficient-context handling. They are not claims
+about open-domain model quality. See the [evaluation methodology](docs/eval-methodology.md)
+and [engineering harness](docs/engineering-harness.md) for fixture scope,
+commands, and interpretation.
 
 ## Documentation
 
-Full index: [`INDEX.md`](INDEX.md). Key documents:
+- [Documentation index](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [Harness architecture](docs/harness-architecture.md)
+- [Configuration](docs/configuration.md)
+- [Tool Bridge protocol](docs/tool-bridge-protocol.md)
+- [AllCallAll integration](docs/allcallall-integration.md)
+- [Contract governance](contracts/README.md)
 
-| Document | Content |
-| --- | --- |
-| [`docs/architecture.md`](docs/architecture.md) | System architecture, workflows, safety model. |
-| [`docs/harness-architecture.md`](docs/harness-architecture.md) | Three-layer harness decoupling (scheduling / persistence / tool). |
-| [`docs/loop-engineering.md`](docs/loop-engineering.md) | Bounded role loops and the loop contract. |
-| [`docs/check-agents.md`](docs/check-agents.md) | Two-tier CheckAgent quality/safety loop. |
-| [`docs/context-compression.md`](docs/context-compression.md) | Hierarchical memory and token-bounded model history. |
-| [`docs/skill-registry.md`](docs/skill-registry.md) | Skill catalog + dynamic registry with SecurityOverlay. |
-| [`docs/mcp-tools-async-queue.md`](docs/mcp-tools-async-queue.md) | MCP tool descriptors and async tool queue semantics. |
-| [`docs/engineering-harness.md`](docs/engineering-harness.md) | Deterministic engineering harness and IR metrics. |
-| [`docs/eval-methodology.md`](docs/eval-methodology.md) | Eval scope and current evidence. |
-| [`docs/configuration.md`](docs/configuration.md) | Full environment variable reference. |
-| [`docs/tool-bridge-protocol.md`](docs/tool-bridge-protocol.md) | Go Tool Bridge HTTP protocol. |
-| [`docs/allcallall-integration.md`](docs/allcallall-integration.md) | Cross-service wiring with the Go backend. |
+`INDEX.md` remains as a compatibility pointer for older links.
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and follow the
+[Code of Conduct](CODE_OF_CONDUCT.md). Keep public imports, HTTP routes,
+environment variables, JSON Schemas, and generated contracts compatible unless
+an approved change includes an explicit migration path.
+
+## Security and Support
+
+Do not report vulnerabilities in public issues. Follow [SECURITY.md](SECURITY.md)
+for private disclosure. For usage questions, reproducible bugs, and design
+proposals, see [SUPPORT.md](SUPPORT.md).
+
+## License
+
+AllCallAll Agent Runtime is available under the [MIT License](LICENSE).

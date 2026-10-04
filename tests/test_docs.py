@@ -87,3 +87,25 @@ def test_documentation_index_accepts_indexed_document(tmp_path: Path) -> None:
     )
 
     assert failures == []
+
+
+def test_reports_missing_or_unlinked_governance_files(tmp_path: Path) -> None:
+    write_files(
+        tmp_path,
+        {
+            "README.md": "# Runtime\n\n[Contributing](CONTRIBUTING.md)\n",
+            "docs/README.md": "# Documentation\n",
+            "CONTRIBUTING.md": "# Contributing\n",
+            "SECURITY.md": "# Security\n",
+        },
+    )
+
+    failures = check_documentation_tree(tmp_path)
+
+    for governance_file in (
+        "LICENSE",
+        "SECURITY.md",
+        "CODE_OF_CONDUCT.md",
+        "SUPPORT.md",
+    ):
+        assert any(governance_file in failure for failure in failures)

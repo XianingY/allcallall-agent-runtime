@@ -18,6 +18,13 @@ IGNORED_DIRECTORIES = {
     "output",
     "vendor",
 }
+GOVERNANCE_FILES = (
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
+    "SUPPORT.md",
+)
 COMPATIBILITY_POINTER_MARKERS = (
     "compatibility page preserves an older link",
     "compatibility pointer",
@@ -189,6 +196,36 @@ def check_documentation_index(
     return failures
 
 
+def check_governance_files(root: Path, readme_source: str) -> list[str]:
+    root = root.resolve()
+    linked_files: set[str] = set()
+    for line in _visible_lines(readme_source):
+        for match in LINK_RE.finditer(line):
+            raw_target = match.group(1).strip()
+            if raw_target.startswith("#") or re.match(
+                r"^(?:[a-z][a-z0-9+.-]*:|//)", raw_target, re.IGNORECASE
+            ):
+                continue
+            target = _link_destination(raw_target)
+            if not target:
+                continue
+            resolved = (root / target).resolve()
+            try:
+                linked_files.add(_relative(root, resolved))
+            except ValueError:
+                continue
+
+    failures: list[str] = []
+    for governance_file in GOVERNANCE_FILES:
+        if not (root / governance_file).exists():
+            failures.append(f"{governance_file}: required governance file is missing")
+        elif governance_file not in linked_files:
+            failures.append(
+                f"{governance_file}: governance file is not linked from README.md"
+            )
+    return failures
+
+
 def check_documentation_tree(root: Path) -> list[str]:
     root = root.resolve()
     files = collect_markdown_files(root)
@@ -217,6 +254,11 @@ def check_documentation_tree(root: Path) -> list[str]:
             index_path.read_text(encoding="utf-8"),
         )
     )
+    readme_path = root / "README.md"
+    if readme_path.exists():
+        failures.extend(
+            check_governance_files(root, readme_path.read_text(encoding="utf-8"))
+        )
     return failures
 
 
