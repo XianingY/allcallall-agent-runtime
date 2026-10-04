@@ -1,7 +1,6 @@
-"""Compatibility exports for the orchestration harness."""
+"""Agent workflow orchestration."""
 
-from .config import config as app_config
-from .orchestration.harness import (
+from .harness import (
     AllCallAllAgentHarness,
     HarnessTimeoutExceeded,
     get_harness,
@@ -11,7 +10,7 @@ from .orchestration.harness import (
 __all__ = [
     "AllCallAllAgentHarness",
     "HarnessTimeoutExceeded",
-    "app_config",
     "get_harness",
     "get_workflow_graph",
 ]
+

@@ -1,0 +1,651 @@
+"""Agent Runtime Harness for request normalization, graph execution, and loop projection."""
+
+from __future__ import annotations
+
+import concurrent.futures
+import uuid
+from collections import defaultdict
+from threading import Lock
+from typing import Any
+
+from ..config import config as app_config
+from ..checkpoint.store import (
+    CheckpointStore,
+    MemoryCheckpointStore,
+    MySQLCheckpointStore,
+    NullCheckpointStore,
+    SQLiteCheckpointStore,
+)
+from ..context_compression import InMemoryLongTermMemory
+from ..dag import build_workflow_graph
+from ..helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
+from ..providers.base import LLMProvider
+from ..skill_registry import build_production_registry
+from ..tool_layer import GoToolBridgeLayer, ToolLayer
+from ..async_tool_queue import AsyncToolQueue, get_default_tool_queue, priority_to_int
+from ..badcase import BadcaseStore, classify_badcase
+from ..models import (
+    AgentHarnessMetadata,
+    AgentRunRequest,
+    AgentRunResponse,
+    ContextSufficiency,
+    CriticResult,
+    EvidencePack,
+    GraphExpansion,
+    IntentRoute,
+    LoopBudget,
+    LoopSpec,
+    LoopStep,
+    LoopStopReason,
+    LoopTrace,
+    MemoryReflection,
+    MeetingBriefRequest,
+    MeetingBriefResponse,
+    RetrievalPlan,
+    RouteDecision,
+    RiskAssessment,
+    RoleResult,
+    TraceEvent,
+    WorkflowRequest,
+    WorkflowResponse,
+)
+from ..prompts import prompt_version_for
+from ..providers import ProviderError, create_provider
+
+
+class HarnessTimeoutExceeded(TimeoutError):
+    """Raised when a single workflow run exceeds ``request_timeout_seconds``.
+
+    The HTTP layer maps this to a ``504`` (or ``408`` for client-aborted style)
+    response so a runaway workflow cannot hang the request worker indefinitely.
+    """
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__(f"workflow run exceeded the {timeout_seconds}s request timeout")
+        self.timeout_seconds = timeout_seconds
+
+
+# Bounded pool for running blocking LangGraph invocations off the (sync) request
+# worker thread so a per-request timeout can be enforced via future.result().
+_invoke_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=16, thread_name_prefix="agent-harness-invoke"
+)
+
+
+_graph: Any | None = None
+_graph_lock = Lock()
+_default_harness: AllCallAllAgentHarness | None = None
+_default_harness_lock = Lock()
+
+
+def get_workflow_graph() -> Any:
+    """Return a process-wide compiled workflow graph (production defaults).
+
+    Kept for backward compatibility. New code should construct an
+    :class:`AllCallAllAgentHarness` (optionally via
+    :func:`allcallall_agent_runtime.factory.build_agent_harness`) so the
+    checkpoint store, tool layer, and provider can be injected and tested
+    independently.
+    """
+    return get_harness()._get_graph()
+
+
+def get_harness() -> AllCallAllAgentHarness:
+    """Return a process-wide singleton harness.
+
+    Building a harness (graph compilation, checkpointer, connection pool) is
+    comparatively expensive, so the HTTP layer reuses one instance across all
+    requests instead of constructing a fresh one per call. Reuse is thread-safe:
+    the graph is compiled once under a lock, and the LangGraph graph plus the
+    checkpoint connection pool are safe for concurrent ``invoke`` calls.
+    """
+    global _default_harness
+    if _default_harness is None:
+        with _default_harness_lock:
+            if _default_harness is None:
+                _default_harness = AllCallAllAgentHarness()
+    return _default_harness
+
+
+def _default_checkpoint_store() -> NullCheckpointStore | MySQLCheckpointStore | SQLiteCheckpointStore | MemoryCheckpointStore:
+    store = (app_config.checkpoint_store or "").strip().lower()
+    if store == "mysql" or (not store and app_config.checkpoint_mysql_enabled):
+        return MySQLCheckpointStore(app_config.checkpoint_mysql_dsn)
+    if store == "sqlite":
+        return SQLiteCheckpointStore(app_config.checkpoint_sqlite_path or ":memory:")
+    if store == "memory":
+        return MemoryCheckpointStore()
+    return NullCheckpointStore()
+
+
+class AllCallAllAgentHarness:
+    """Run Agent workflows with consistent contracts, trace, and eval projection.
+
+    The three concerns that previously lived inline in this class — workflow
+    scheduling, durable checkpoint persistence, and tool execution — are now
+    injected dependencies (``checkpoint_store``, ``tool_layer``, ``provider``).
+    Each can be swapped or mocked without editing the orchestration logic, which
+    is what lets the layers evolve and be tested independently.
+    """
+
+    name = "allcallall_v1"
+    graph_name = "supervisor_workflow_with_bounded_loops"
+
+    def __init__(
+        self,
+        *,
+        checkpoint_store: CheckpointStore | None = None,
+        tool_layer: ToolLayer | None = None,
+        provider: LLMProvider | None = None,
+        tool_queue: AsyncToolQueue | None = None,
+        badcase_store: BadcaseStore | None = None,
+    ) -> None:
+        self.checkpoint_store = checkpoint_store or _default_checkpoint_store()
+        self.tool_layer = tool_layer or GoToolBridgeLayer()
+        self._provider = provider
+        # When the async tool queue is enabled, approved write proposals produced
+        # by a run are enqueued here (and executed by the background worker).
+        # Otherwise the legacy behavior is preserved (proposals returned to caller).
+        self._tool_queue = tool_queue or (get_default_tool_queue() if app_config.enable_tool_queue else None)
+        # Optional injected badcase store; lazily built from config on first
+        # capture so a harness constructed without one is still cheap.
+        self._badcase_store = badcase_store
+        self._badcase_store_cache: BadcaseStore | None = None
+        self._badcase_store_lock = Lock()
+        self._graph: Any | None = None
+        self._graph_lock = Lock()
+
+    def _get_graph(self) -> Any:
+        if self._graph is None:
+            with self._graph_lock:
+                if self._graph is None:
+                    checkpointer = self.checkpoint_store.make_checkpointer()
+                    self._graph = build_workflow_graph(checkpointer)
+        return self._graph
+
+    def _invoke_graph(self, state: dict[str, Any], run_config: dict[str, Any]) -> dict[str, Any]:
+        """Invoke the compiled graph, enforcing ``request_timeout_seconds``.
+
+        The LangGraph ``invoke`` is blocking, so it runs on a worker thread;
+        ``future.result(timeout=...)`` turns a runaway run into a clear
+        :class:`HarnessTimeoutExceeded` instead of hanging the request worker.
+        A ``timeout`` of 0 disables the deadline (legacy behavior).
+        """
+        graph = self._get_graph()
+        timeout = float(app_config.request_timeout_seconds)
+        if timeout and timeout > 0:
+            future = _invoke_executor.submit(graph.invoke, state, config=run_config)
+            try:
+                result: dict[str, Any] = future.result(timeout=timeout)
+            except concurrent.futures.TimeoutError as exc:
+                raise HarnessTimeoutExceeded(timeout) from exc
+            return result
+        graph_result: dict[str, Any] = graph.invoke(state, config=run_config)
+        return graph_result
+
+    def run_meeting_brief(self, request: MeetingBriefRequest) -> MeetingBriefResponse:
+        return self.run_workflow(request.model_copy(update={"preset": "meeting_brief"}))
+
+    def run_react_agent(self, request: AgentRunRequest) -> AgentRunResponse:
+        return self.run_workflow(request.model_copy(update={"preset": "react_general"}))
+
+    def run_workflow(self, request: WorkflowRequest) -> WorkflowResponse:
+        preset = normalize_workflow_preset(request.preset)
+        if preset not in SUPPORTED_WORKFLOWS:
+            request = request.model_copy(update={"preset": preset})
+            return self._failure_response(
+                request,
+                provider_name=app_config.provider or "rules",
+                error=f"unsupported workflow preset: {request.preset}",
+                trace=[],
+            )
+
+        request = request.model_copy(update={"preset": preset})
+        provider_name = app_config.provider or "rules"
+        try:
+            provider = self._provider or create_provider()
+            provider_name = provider.name
+            # Opt-in enhancements that never affect the default path:
+            #  - Module 5: resolve a skill's system instructions and inject them.
+            #  - Module 4: retrieve durable long-term memory (context compression).
+            trace_events: list[TraceEvent] = []
+            skill_instructions = self._resolve_skill_instructions(request, trace_events)
+            long_term_memory = self._resolve_long_term_memory(request)
+            if long_term_memory:
+                request = request.model_copy(update={"long_term_memory": long_term_memory})
+            # LangGraph requires a thread_id whenever a checkpointer is attached
+            # (SQLite/MySQL). Derive it from the request so runs are durable and
+            # resumable, and stable across retries of the same workflow run.
+            run_config = {"configurable": {"thread_id": f"aca-{request.workflow_run_id}"}}
+            result = self._invoke_graph(
+                {
+                    "request": request,
+                    "provider": provider,
+                    "tool_bridge": self.tool_layer.build(),
+                    "trace_events": trace_events,
+                    "role_results": [],
+                    "skill_instructions": skill_instructions,
+                    "long_term_memory": long_term_memory,
+                },
+                run_config,
+            )
+            # Hand approved write proposals to the async queue for background
+            # execution via the Go tool bridge (a real, durable handoff rather
+            # than dropping them). No-op when the queue is disabled.
+            self._enqueue_proposals(request, result.get("proposed_tool_calls", []))
+        except ProviderError as exc:
+            return self._failure_response(
+                request,
+                provider_name=provider_name,
+                error=f"{exc.kind}: {exc}",
+                trace=[
+                    TraceEvent(
+                        event="provider.error",
+                        node="provider",
+                        status="failed",
+                        metadata={"kind": exc.kind, "retryable": exc.retryable},
+                    )
+                ],
+            )
+
+        response = self._response_from_graph_result(request, provider_name, result)
+        self._capture_badcase(request, response)
+        return response
+
+    def _enqueue_proposals(
+        self, request: WorkflowRequest, proposals: list[object]
+    ) -> None:
+        """Enqueue approved write proposals onto the async tool queue.
+
+        Each :class:`ToolProposal` carries the idempotency key, target queue,
+        priority, rate-limit key and retry budget the queue needs. We also stamp
+        the originating ``organization_id`` / ``user_id`` onto the payload so the
+        background worker can authenticate the write against the Go backend.
+        Silently skipped when the queue is disabled (legacy behavior).
+        """
+        if self._tool_queue is None or not proposals:
+            return
+        for proposal in proposals:
+            tool_name: str = getattr(proposal, "tool_name", "")
+            payload = dict(getattr(proposal, "arguments", {}) or {})
+            payload.setdefault("organization_id", request.organization_id)
+            payload.setdefault("user_id", request.user_id)
+            self._tool_queue.enqueue(
+                tool_name,
+                payload,
+                idempotency_key=getattr(proposal, "idempotency_key", "") or f"{tool_name}:{uuid.uuid4().hex}",
+                queue_name=getattr(proposal, "queue_name", "agent_writebacks"),
+                priority=priority_to_int(getattr(proposal, "priority", "normal")),
+                rate_limit_key=getattr(proposal, "rate_limit_key", ""),
+                    max_attempts=getattr(proposal, "max_attempts", 3),
+            )
+
+    def _get_badcase_store(self) -> BadcaseStore:
+        """Return the injected store, lazily constructing one from config."""
+        if self._badcase_store is not None:
+            return self._badcase_store
+        with self._badcase_store_lock:
+            if self._badcase_store_cache is None:
+                self._badcase_store_cache = BadcaseStore(app_config.badcase_sqlite_path)
+            return self._badcase_store_cache
+
+    def _capture_badcase(self, request: WorkflowRequest, response: WorkflowResponse) -> None:
+        """Classify a run result and persist it when it is a badcase.
+
+        No-op unless ``enable_badcase_capture`` is on. Failures here are swallowed
+        so badcase capture can never break or slow down a workflow run.
+        """
+        if not app_config.enable_badcase_capture:
+            return
+        try:
+            record = classify_badcase(request, response)
+            if record is None:
+                return
+            self._get_badcase_store().save(record)
+        except Exception:
+            return
+
+    def _failure_response(
+        self,
+        request: WorkflowRequest,
+        provider_name: str,
+        error: str,
+        trace: list[TraceEvent],
+    ) -> WorkflowResponse:
+        prompt_version = prompt_version_for(request)
+        response = WorkflowResponse(
+            status="failed",
+            provider=provider_name,
+            error=error,
+            prompt_version=prompt_version,
+            trace_events=trace,
+            harness=self._harness_metadata(request, prompt_version),
+            route_decision=self._route_decision(request, IntentRoute()),
+            critic_result=CriticResult(
+                passed=False,
+                issues=[error],
+                budget_respected=True,
+                write_proposal_safe=True,
+                grounding_passed=False,
+                context_sufficient=False,
+            ),
+            stop_reason="runtime_error",
+        )
+        self._capture_badcase(request, response)
+        return response
+
+    def _response_from_graph_result(
+        self,
+        request: WorkflowRequest,
+        provider_name: str,
+        result: dict[str, Any],
+    ) -> WorkflowResponse:
+        proposed = result.get("proposed_tool_calls", [])
+        status = "requires_action" if proposed else "ready"
+        trace_events = result.get("trace_events", [])
+        role_results = result.get("role_results", [])
+        intent_route = result.get("intent_route", IntentRoute())
+        context_sufficiency = result.get("context_sufficiency", ContextSufficiency())
+        evidence_pack = result.get("evidence_pack", EvidencePack())
+        grounding = result.get("grounding_check_result", {})
+        prompt_version = result.get("prompt_version", prompt_version_for(request))
+        loop_traces = self._loop_traces(request, role_results)
+        budget = self._aggregate_budget(loop_traces, proposed)
+        critic_result = result.get("critic_result") or self._critic_result(
+            context_sufficiency,
+            grounding,
+            evidence_pack,
+            proposed,
+            loop_traces,
+        )
+        stop_reason = self._stop_reason(status, context_sufficiency, critic_result, loop_traces)
+        output_decision = result.get("output_decision")
+        termination_signals = [
+            role.termination_signal for role in role_results if role.termination_signal is not None
+        ]
+
+        return WorkflowResponse(
+            status=status,
+            provider=provider_name,
+            summary=result.get("summary", ""),
+            action_items=result.get("action_items", []),
+            next_step=result.get("next_step", ""),
+            risk_flags=result.get("risk_flags", []),
+            citations=result.get("citations", []),
+            role_results=role_results,
+            trace_events=trace_events,
+            proposed_tool_calls=proposed,
+            prompt_version=prompt_version,
+            grounding_check_result=grounding,
+            retrieval_plan=result.get("retrieval_plan") or RetrievalPlan(),
+            retrieval_attempts=result.get("retrieval_attempts", []),
+            evidence_pack=evidence_pack,
+            context_sufficiency=context_sufficiency,
+            intent_route=intent_route,
+            route_decision=self._route_decision(request, intent_route),
+            critic_result=critic_result,
+            harness=self._harness_metadata(request, prompt_version),
+            loop_traces=loop_traces,
+            stop_reason=stop_reason,
+            budget=budget,
+            graph_expansion=result.get("graph_expansion", GraphExpansion()),
+            memory_reflection=result.get("memory_reflection", MemoryReflection()),
+            risk_assessment=result.get("risk_assessment", RiskAssessment()),
+            output_decision=output_decision,
+            termination_signals=termination_signals,
+        )
+
+    def _resolve_skill_instructions(
+        self, request: WorkflowRequest, trace_events: list[TraceEvent]
+    ) -> str:
+        """Resolve and inject a skill's system instructions (Module 5, opt-in).
+
+        Only runs when ``enable_skills`` is on and a manifest is configured. The
+        matched skill's hardened instructions are injected into the graph state
+        for the synthesize node to consume; failures are swallowed so a missing
+        or misconfigured skill never breaks a workflow run.
+        """
+        if not app_config.enable_skills or not app_config.skill_manifest_path:
+            return ""
+        try:
+            registry = build_production_registry(app_config.skill_manifest_path)
+            # Prefer a skill named after the preset; otherwise the first skill.
+            skill_name = request.preset if registry.get(request.preset) else None
+            if skill_name is None:
+                skills = registry.all()
+                skill_name = skills[0].name if skills else None
+            if not skill_name:
+                return ""
+            resolved = registry.resolve(skill_name)
+            trace_events.append(
+                TraceEvent(
+                    event="skill.resolved",
+                    node="harness",
+                    status="injected",
+                    metadata={
+                        "skill": resolved.name,
+                        "risk_level": resolved.risk_level,
+                        "requires_approval": resolved.requires_approval,
+                        "allowed_tools": resolved.allowed_tools,
+                    },
+                )
+            )
+            return resolved.system_instructions
+        except (KeyError, ValueError, OSError):
+            return ""
+
+    def _resolve_long_term_memory(self, request: WorkflowRequest) -> list[str]:
+        """Retrieve durable long-term memory for the request (Module 4, opt-in).
+
+        Only runs when ``enable_context_compression`` is on. Uses the default
+        in-memory long-term store so no external service is required; a real
+        deployment can swap in :class:`SQLiteLongTermMemory` or a vector store.
+        """
+        if not app_config.enable_context_compression:
+            return []
+        store = InMemoryLongTermMemory()
+        return store.retrieve(request.goal[:80], top_k=3)
+
+    def _harness_metadata(self, request: WorkflowRequest, prompt_version: str) -> AgentHarnessMetadata:
+        modalities = ["text"]
+        if request.meeting_transcripts:
+            modalities.append("audio_transcript")
+        for attachment in request.attachments:
+            if attachment.modality == "image":
+                modalities.append("image_metadata")
+            elif attachment.modality == "audio":
+                modalities.append("audio_transcript")
+            elif attachment.modality == "video":
+                modalities.append("video_transcript")
+            else:
+                modalities.append(attachment.modality)
+        return AgentHarnessMetadata(
+            name=self.name,
+            graph_name=self.graph_name,
+            prompt_version=prompt_version,
+            input_modalities=sorted(set(modalities)),
+        )
+
+    def _route_decision(self, request: WorkflowRequest, intent_route: IntentRoute) -> RouteDecision:
+        route = "CHAT"
+        if request.preset == "meeting_brief":
+            route = "MEETING_RECAP"
+        elif request.preset == "follow_up_planner":
+            route = "FOLLOW_UP"
+        elif intent_route.intent == "risk" or request.preset == "risk_review":
+            route = "RISK"
+        elif intent_route.intent == "consult" or request.preset == "context_qa":
+            route = "CONSULT"
+        return RouteDecision(
+            route=route,
+            intent=intent_route.intent,
+            target_workflow=request.preset or intent_route.target_workflow,
+            confidence=intent_route.confidence,
+            rationale=intent_route.rationale,
+            retrieval_strategy=intent_route.retrieval_strategy,
+        )
+
+    def _loop_traces(self, request: WorkflowRequest, role_results: list[RoleResult]) -> list[LoopTrace]:
+        traces: list[LoopTrace] = []
+        for result in role_results:
+            role_events = result.react_trace
+            if not role_events:
+                continue
+            events_by_iteration: dict[int, list[TraceEvent]] = defaultdict(list)
+            for event in role_events:
+                iteration = event.iteration or int(event.metadata.get("iteration", 0) or 0)
+                if iteration:
+                    events_by_iteration[iteration].append(event)
+            max_steps = self._role_max_steps(request, result.role)
+            steps: list[LoopStep] = []
+            for iteration in sorted(events_by_iteration):
+                events = events_by_iteration[iteration]
+                observation_event = self._last_event(events, "react.observe") or self._last_event(events, "tool.result")
+                tool_event = self._last_event(events, "tool.call") or observation_event
+                failed = any(event.status == "failed" for event in events)
+                stop_reason: LoopStopReason = "tool_error" if failed else "completed"
+                if iteration >= max_steps and not failed:
+                    stop_reason = "max_iterations"
+                citation_ids = [item.chunk_id or item.source_id for item in result.citations if item.chunk_id or item.source_id]
+                confidence = min(1.0, 0.35 + (0.15 * len(citation_ids)))
+                steps.append(
+                    LoopStep(
+                        iteration=iteration,
+                        role=result.role,
+                        thought_summary=(observation_event.thought if observation_event else "")[:240],
+                        selected_skill=tool_event.tool_name if tool_event else "",
+                        input_schema=tool_event.tool_input if tool_event else {},
+                        observation=(observation_event.observation if observation_event else "")[:600],
+                        citation_ids=sorted(set(citation_ids)),
+                        confidence=confidence,
+                        stop_reason=stop_reason,
+                        budget_used=LoopBudget(
+                            max_steps=max_steps,
+                            used_steps=iteration,
+                            read_tool_calls=len([event for event in events if event.event == "tool.call"]),
+                        ),
+                    )
+                )
+            loop_stop = self._loop_stop_reason(max_steps, steps)
+            traces.append(
+                LoopTrace(
+                    role=result.role,
+                    spec=LoopSpec(
+                        role=result.role,
+                        objective=self._role_objective(request, result.role),
+                        max_steps=max_steps,
+                        allowed_tools=sorted(
+                            {
+                                event.tool_name
+                                for event in role_events
+                                if event.tool_name and event.event in {"tool.call", "react.observe"}
+                            }
+                        ),
+                        stop_conditions=["confidence_reached", "max_iterations", "tool_error"],
+                    ),
+                    steps=steps,
+                    stop_reason=loop_stop,
+                    completed=loop_stop != "tool_error",
+                    budget=LoopBudget(
+                        max_steps=max_steps,
+                        used_steps=len(steps),
+                        read_tool_calls=len(
+                            [event for event in role_events if event.event == "tool.call" and event.tool_name]
+                        ),
+                    ),
+                    termination_signal=result.termination_signal,
+                )
+            )
+        return traces
+
+    def _role_max_steps(self, request: WorkflowRequest, role: str) -> int:
+        defaults = {
+            "searcher": 3,
+            "risk_analyst": 2,
+            "risk_guardian": 2,
+            "memory_agent": 1,
+            "follow_up_planner": 2,
+        }
+        return max(1, min(request.max_iterations.get(role, defaults.get(role, 1)), app_config.loop_max_steps))
+
+    def _role_objective(self, request: WorkflowRequest, role: str) -> str:
+        if role == "risk_analyst":
+            return "Inspect retrieved evidence for approval, blocker, timeline, or policy risk."
+        if role == "memory_agent":
+            return "Summarize durable memory and decide whether reflection should be proposed."
+        if role == "follow_up_planner":
+            return "Extract owner-bound action items and propose follow-up writes through approval."
+        return f"Collect evidence for preset={request.preset} goal={request.goal[:120]}"
+
+    def _loop_stop_reason(self, max_steps: int, steps: list[LoopStep]) -> LoopStopReason:
+        if not steps:
+            return "no_tool_needed"
+        if any(step.stop_reason == "tool_error" for step in steps):
+            return "tool_error"
+        if len(steps) >= max_steps:
+            return "max_iterations"
+        if any(step.confidence >= 0.6 for step in steps):
+            return "confidence_reached"
+        return "completed"
+
+    def _aggregate_budget(self, loop_traces: list[LoopTrace], proposed: list[Any]) -> LoopBudget:
+        return LoopBudget(
+            max_steps=sum(loop.budget.max_steps for loop in loop_traces),
+            used_steps=sum(loop.budget.used_steps for loop in loop_traces),
+            read_tool_calls=sum(loop.budget.read_tool_calls for loop in loop_traces),
+            write_tool_proposals=len(proposed),
+        )
+
+    def _critic_result(
+        self,
+        sufficiency: ContextSufficiency,
+        grounding: dict[str, Any],
+        evidence_pack: EvidencePack,
+        proposed: list[Any],
+        loop_traces: list[LoopTrace],
+    ) -> CriticResult:
+        issues: list[str] = []
+        grounding_passed = bool(grounding.get("grounded", True))
+        if not grounding_passed:
+            issues.append("grounding_failed")
+        budget_respected = all(loop.budget.used_steps <= loop.budget.max_steps for loop in loop_traces)
+        if not budget_respected:
+            issues.append("loop_budget_exceeded")
+        write_safe = all(getattr(item, "approval_required", False) for item in proposed)
+        if not write_safe:
+            issues.append("unsafe_write_proposal")
+        if not sufficiency.sufficient:
+            issues.append("insufficient_context_guarded")
+        return CriticResult(
+            passed=grounding_passed and budget_respected and write_safe,
+            issues=issues,
+            citation_coverage=evidence_pack.coverage,
+            budget_respected=budget_respected,
+            write_proposal_safe=write_safe,
+            grounding_passed=grounding_passed,
+            context_sufficient=sufficiency.sufficient,
+        )
+
+    def _stop_reason(
+        self,
+        status: str,
+        sufficiency: ContextSufficiency,
+        critic_result: CriticResult,
+        loop_traces: list[LoopTrace],
+    ) -> str:
+        if not sufficiency.sufficient:
+            return "insufficient_context"
+        if not critic_result.grounding_passed:
+            return "grounding_failed"
+        if status == "requires_action":
+            return "approval_required"
+        if any(loop.stop_reason == "max_iterations" for loop in loop_traces):
+            return "max_iterations"
+        return "completed"
+
+    @staticmethod
+    def _last_event(events: list[TraceEvent], event_name: str) -> TraceEvent | None:
+        for event in reversed(events):
+            if event.event == event_name:
+                return event
+        return None

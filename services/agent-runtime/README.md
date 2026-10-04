@@ -12,6 +12,25 @@ The runtime now behaves as an Agent Runtime Harness:
 - Reflection memory is generated after grounding, then persisted only through approval-gated write proposals.
 - Tool proposals carry async queue, retry, rate-limit, idempotency, and dead-letter metadata for Go-side execution.
 
+## Package Structure
+
+The public import paths remain stable while implementation responsibilities are
+split behind thin compatibility modules:
+
+```text
+allcallall_agent_runtime/api/             FastAPI application factory and routes
+allcallall_agent_runtime/orchestration/   LangGraph harness implementation
+allcallall_agent_runtime/models/          Context, retrieval, trace, tool, and workflow models
+allcallall_agent_runtime/main.py          Uvicorn entrypoint and legacy function exports
+allcallall_agent_runtime/harness.py       Legacy harness exports
+```
+
+Use `allcallall_agent_runtime.main:app` for Uvicorn. Tests and embedders that
+need an isolated application can import `create_app` from
+`allcallall_agent_runtime.api.app`. Existing imports from
+`allcallall_agent_runtime.models` and `allcallall_agent_runtime.harness` remain
+supported.
+
 Multimodal status:
 
 - `InputAttachment` supports `text`, `image`, `audio`, `video`, and generic `file` metadata.
