@@ -43,6 +43,7 @@ guidance.
 
 - [Agent Runtime](../services/agent-runtime/README.md)
 - [RAG Runtime](../services/rag-runtime/README.md)
+- [Reference MCP](../services/reference-mcp/README.md)
 
 ## Archive
 

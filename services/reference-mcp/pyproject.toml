@@ -1,7 +1,7 @@
 [project]
-name = "allcallall-interview-mcp"
+name = "allcallall-reference-mcp"
 version = "0.1.0"
-description = "Deterministic HTTPS MCP service used by the AllCallAll interview stack"
+description = "Deterministic HTTPS MCP reference service for AllCallAll integrations"
 requires-python = ">=3.11"
 dependencies = [
   "mcp>=1.0.0,<2",
@@ -12,7 +12,7 @@ dependencies = [
 dev = ["mypy>=1.10,<2", "pytest>=8.2,<9", "ruff>=0.15,<0.16"]
 
 [tool.setuptools.packages.find]
-include = ["allcallall_interview_mcp*"]
+include = ["allcallall_reference_mcp*", "allcallall_interview_mcp*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

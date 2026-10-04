@@ -23,7 +23,7 @@ install-dev: venv
 	$(PYTHON) -m pip install -e "services/agent-runtime[dev]"
 	$(PYTHON) -m pip install -e "services/rag-runtime[dev]"
 	$(PYTHON) -m pip install -e "services/sandbox-runner[dev]"
-	$(PYTHON) -m pip install -e "services/interview-mcp[dev]"
+	$(PYTHON) -m pip install -e "services/reference-mcp[dev]"
 	$(PYTHON) -m pip install -e "packages/sdk[dev]"
 
 test:
@@ -31,18 +31,18 @@ test:
 	cd services/agent-runtime && $(PYTEST)
 	cd services/rag-runtime && $(PYTEST)
 	cd services/sandbox-runner && $(PYTEST)
-	cd services/interview-mcp && $(PYTEST)
+	cd services/reference-mcp && $(PYTEST)
 	cd packages/sdk && $(PYTEST)
 
 lint:
-	$(PYTHON) -m ruff check packages/shared services/agent-runtime services/rag-runtime services/sandbox-runner services/interview-mcp packages/sdk scripts
+	$(PYTHON) -m ruff check packages/shared services/agent-runtime services/rag-runtime services/sandbox-runner services/reference-mcp packages/sdk scripts
 
 typecheck:
 	cd packages/shared && $(PYTHON) -m mypy .
 	cd services/agent-runtime && $(PYTHON) -m mypy .
 	cd services/rag-runtime && $(PYTHON) -m mypy .
 	cd services/sandbox-runner && $(PYTHON) -m mypy .
-	cd services/interview-mcp && $(PYTHON) -m mypy .
+	cd services/reference-mcp && $(PYTHON) -m mypy .
 	cd packages/sdk && $(PYTHON) -m mypy .
 
 docs-check:

@@ -17,8 +17,7 @@ members = [
     "services/agent-runtime",
     "services/rag-runtime",
     "services/sandbox-runner",
-    "services/interview-mcp",
+    "services/reference-mcp",
     "packages/shared",
     "packages/sdk",
 ]
-

@@ -60,8 +60,8 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
 
 mcp = FastMCP(
-    "AllCallAll Interview MCP",
-    instructions="Deterministic support policy and ticket tools for the interview demo.",
+    "AllCallAll Reference MCP",
+    instructions="Deterministic support policy and ticket tools for reference integrations.",
     host="0.0.0.0",
     port=8443,
     streamable_http_path="/mcp",
@@ -122,7 +122,7 @@ def create_support_ticket(subject: str, description: str, idempotency_key: str) 
 
 @mcp.tool(
     name="get_ticket",
-    description="Read a support ticket created by the interview MCP service.",
+    description="Read a support ticket created by the reference MCP service.",
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
 def get_ticket(ticket_id: str) -> dict[str, Any]:

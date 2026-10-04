@@ -23,7 +23,7 @@ business writes. Those responsibilities remain in the main product repository.
 | `services/agent-runtime/` | FastAPI and LangGraph Agent orchestration service |
 | `services/rag-runtime/` | Retrieval planning, reranking, evidence packs, and grounding service |
 | `services/sandbox-runner/` | Isolated execution worker and supervisor transport |
-| `services/interview-mcp/` | Reference read-only MCP service retained for compatibility |
+| `services/reference-mcp/` | Deterministic HTTPS MCP reference service with legacy import compatibility |
 | `packages/shared/` | Shared Pydantic contracts, scoring, and runtime utilities |
 | `packages/sdk/` | Typed Python client for Agent and RAG services |
 | `contracts/` | Generated JSON Schemas and golden fixtures |

@@ -6,10 +6,12 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from allcallall_rag_runtime.api import create_app
 from allcallall_rag_runtime.config import config
 from allcallall_rag_runtime.eval_runner import load_cases, run_eval
 from allcallall_rag_runtime.main import app
 from allcallall_rag_runtime.models import AgenticRetrievalRequest, ContextChunk
+from allcallall_rag_runtime.pipeline import select_retrieval_chunks
 from allcallall_rag_runtime.qdrant_adapter import QdrantAdapter
 from allcallall_rag_runtime.llamaindex_adapter import run_fixture_retrieval
 from allcallall_rag_runtime.retrieval import (
@@ -19,6 +21,38 @@ from allcallall_rag_runtime.retrieval import (
     rerank,
     route_query,
 )
+
+
+def test_app_factory_preserves_public_routes() -> None:
+    expected = {
+        "/health",
+        "/ready",
+        "/metrics",
+        "/v1/capabilities",
+        "/v1/retrieval/query",
+        "/v1/retrieval/rerank",
+        "/v1/retrieval/agentic",
+        "/v1/grounding/check",
+    }
+
+    assert set(app.openapi()["paths"]) == expected
+    assert set(create_app().openapi()["paths"]) == expected
+
+
+def test_pipeline_uses_inline_chunks_when_external_sources_are_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "tool_bridge_base_url", "")
+    monkeypatch.setattr(config, "vector_store", "none")
+    request = AgenticRetrievalRequest(
+        query="approval",
+        chunks=[ContextChunk(source_type="knowledge", source_id="1", snippet="approval policy")],
+    )
+
+    chunks, source = select_retrieval_chunks(request)
+
+    assert source == "inline"
+    assert chunks == request.chunks
 
 
 def test_rules_rerank_prioritizes_relevant_source() -> None:

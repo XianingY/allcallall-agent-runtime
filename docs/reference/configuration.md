@@ -178,3 +178,21 @@ adapter is optional.
 The Go backend (main AllCallAll repo) reads its own `AGENT_*` / `PY_*` pairing
 variables; see the [AllCallAll integration guide](../guides/allcallall-integration.md) for the cross-service wiring and
 the main repo's `docs/reference/configuration/runtime.md` for the full backend list.
+
+## Reference MCP Compatibility Settings
+
+The service lives at `services/reference-mcp/` and publishes the
+`allcallall_reference_mcp` package. The former environment-variable names are
+retained for deployment compatibility:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `INTERVIEW_MCP_DB_PATH` | `/data/tickets.sqlite3` | SQLite path for deterministic reference tickets. |
+| `INTERVIEW_MCP_BEARER_TOKEN_FILE` | `/run/secrets/mcp-bearer-token` | Preferred bearer-token secret file. |
+| `INTERVIEW_MCP_BEARER_TOKEN` | empty | Environment fallback when the token file is unavailable. |
+| `MCP_INTERVIEW_TRUSTED_HOSTS` | empty | Exact DNS names allowed for private MCP endpoints when `APP_ENV=interview`. |
+| `MCP_CA_CERT_FILE` | system trust | Optional CA bundle for HTTPS MCP endpoints. |
+
+The compatibility names do not relax transport policy: sandbox MCP endpoints
+must use HTTPS, credentials cannot be embedded in URLs, and trusted hosts are
+matched as exact DNS names.

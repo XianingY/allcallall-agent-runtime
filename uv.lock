@@ -14,8 +14,8 @@ resolution-markers = [
 members = [
     "allcallall-agent-runtime",
     "allcallall-agent-runtime-sdk",
-    "allcallall-interview-mcp",
     "allcallall-rag-runtime",
+    "allcallall-reference-mcp",
     "allcallall-sandbox-runner",
     "allcallall-shared",
 ]
@@ -246,32 +246,6 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "allcallall-interview-mcp"
-version = "0.1.0"
-source = { virtual = "services/interview-mcp" }
-dependencies = [
-    { name = "mcp" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mcp", specifier = ">=1.0.0,<2" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10,<2" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.2,<9" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15,<0.16" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "allcallall-rag-runtime"
 version = "0.1.0"
 source = { virtual = "services/rag-runtime" }
@@ -310,6 +284,32 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
 ]
 provides-extras = ["llamaindex", "dev"]
+
+[[package]]
+name = "allcallall-reference-mcp"
+version = "0.1.0"
+source = { virtual = "services/reference-mcp" }
+dependencies = [
+    { name = "mcp" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mcp", specifier = ">=1.0.0,<2" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10,<2" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.2,<9" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15,<0.16" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "allcallall-sandbox-runner"

@@ -2,17 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import queue
-from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from threading import Lock, RLock
+from threading import RLock
 from typing import Any, cast
-from urllib.parse import unquote, urlparse
 
 import anyio
-import pymysql
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     WRITES_IDX_MAP,
@@ -27,8 +24,14 @@ from langgraph.checkpoint.base import (
 from pymysql.connections import Connection
 from pymysql.cursors import DictCursor
 
+from ..persistence.mysql_pool import (
+    ConnectionFactory,
+    MySQLConnectionPool,
+    mysql_connection_factory as mysql_connection_factory,
+)
+from ..persistence.mysql_schema import initialize_checkpoint_schema
 
-ConnectionFactory = Callable[[], Connection]
+
 NamespaceKey = tuple[str, str]
 CheckpointKey = tuple[str, str, str]
 WriteKey = tuple[str, str, str, str, str, int]
@@ -144,11 +147,7 @@ class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
         pool_size: int = 4,
     ) -> None:
         super().__init__()
-        self._connection_factory = connection_factory or mysql_connection_factory(dsn)
-        self._pool_size = max(1, int(pool_size))
-        self._free_connections: queue.Queue[Connection] = queue.Queue(maxsize=self._pool_size)
-        self._created_connections = 0
-        self._pool_lock = Lock()
+        self._pool = MySQLConnectionPool(connection_factory or mysql_connection_factory(dsn), pool_size)
         self._active_transaction: ContextVar[_CheckpointTransaction | None] = ContextVar(
             f"mysql_checkpoint_transaction_{id(self)}",
             default=None,
@@ -166,111 +165,13 @@ class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
         Runs idempotently on every instance so a freshly provisioned database
         (e.g. the CI contract MySQL) is usable without a separate migration.
         """
-        with self._connection() as connection, connection.cursor() as cursor:
-            # Key columns use VARCHAR(150) (per the canonical LangGraph MySQL
-            # schema) so the composite primary keys stay within MySQL's 3072-byte
-            # index cap under utf8mb4 (5 * 150 * 4 + 4 = 3004 bytes for writes).
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS langgraph_checkpoint_threads (
-                    thread_id VARCHAR(150) NOT NULL,
-                    checkpoint_ns VARCHAR(150) NOT NULL DEFAULT '',
-                    current_version BIGINT NOT NULL DEFAULT 0,
-                    updated_at DATETIME(6),
-                    PRIMARY KEY (thread_id, checkpoint_ns)
-                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=DYNAMIC
-                """
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS langgraph_checkpoints (
-                    thread_id VARCHAR(150) NOT NULL,
-                    checkpoint_ns VARCHAR(150) NOT NULL DEFAULT '',
-                    checkpoint_id VARCHAR(150) NOT NULL,
-                    parent_checkpoint_id VARCHAR(150),
-                    execution_id VARCHAR(150),
-                    workflow_run_id BIGINT,
-                    agent_run_id BIGINT,
-                    version BIGINT NOT NULL DEFAULT 0,
-                    checkpoint_type VARCHAR(150),
-                    checkpoint_blob LONGBLOB,
-                    metadata_type VARCHAR(150),
-                    metadata_blob LONGBLOB,
-                    created_at DATETIME(6),
-                    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)
-                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=DYNAMIC
-                """
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS langgraph_checkpoint_writes (
-                    thread_id VARCHAR(150) NOT NULL,
-                    checkpoint_ns VARCHAR(150) NOT NULL DEFAULT '',
-                    checkpoint_id VARCHAR(150) NOT NULL,
-                    task_id VARCHAR(150) NOT NULL,
-                    task_path VARCHAR(150) NOT NULL DEFAULT '',
-                    write_index INT NOT NULL,
-                    channel VARCHAR(150) NOT NULL,
-                    value_type VARCHAR(150),
-                    value_blob LONGBLOB,
-                    created_at DATETIME(6),
-                    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, task_path, write_index)
-                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin ROW_FORMAT=DYNAMIC
-                """
-            )
-            connection.commit()
+        with self._connection() as connection:
+            initialize_checkpoint_schema(connection)
 
     @contextmanager
     def _connection(self) -> Iterator[Connection]:
-        connection = self._acquire_connection()
-        try:
+        with self._pool.connection() as connection:
             yield connection
-        except BaseException:
-            # A failed operation may have left the connection mid-transaction or
-            # broken; retire it and put a fresh replacement back into the pool.
-            self._retire_and_replenish(connection)
-            raise
-        else:
-            self._release_connection(connection)
-
-    def _acquire_connection(self) -> Connection:
-        try:
-            return self._free_connections.get_nowait()
-        except queue.Empty:
-            with self._pool_lock:
-                if self._created_connections < self._pool_size:
-                    self._created_connections += 1
-                    return self._connection_factory()
-            # Pool exhausted: block until a peer returns a connection.
-            return self._free_connections.get()
-
-    def _release_connection(self, connection: Connection) -> None:
-        try:
-            # Roll back anything left open by a previous use before reuse.
-            connection.rollback()
-        except Exception:
-            self._retire_and_replenish(connection)
-            return
-        try:
-            self._free_connections.put_nowait(connection)
-        except queue.Full:  # pragma: no cover - defensive
-            self._retire_and_replenish(connection)
-
-    def _retire_and_replenish(self, connection: Connection) -> None:
-        try:
-            connection.close()
-        except Exception:
-            pass
-        with self._pool_lock:
-            self._created_connections -= 1
-            try:
-                fresh = self._connection_factory()
-                self._created_connections += 1
-                self._free_connections.put_nowait(fresh)
-            except Exception:
-                # DB unreachable: leave the pool smaller; a later acquire will
-                # try to grow it again up to pool_size.
-                pass
 
     @contextmanager
     def checkpoint_transaction(self, thread_id: str, execution_id: str) -> Iterator[None]:
@@ -1136,25 +1037,6 @@ class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
 
     async def adelete_thread(self, thread_id: str) -> None:
         await anyio.to_thread.run_sync(self.delete_thread, thread_id)
-
-
-def mysql_connection_factory(dsn: str) -> ConnectionFactory:
-    parsed = urlparse(dsn)
-    if parsed.scheme not in {"mysql", "mysql+pymysql"} or not parsed.hostname or not parsed.path.strip("/"):
-        raise ValueError("checkpoint MySQL DSN must be mysql://user:password@host:3306/database")
-
-    def connect() -> Connection:
-        return pymysql.connect(
-            host=cast(str, parsed.hostname),
-            port=parsed.port or 3306,
-            user=unquote(parsed.username or ""),
-            password=unquote(parsed.password or ""),
-            database=parsed.path.strip("/"),
-            charset="utf8mb4",
-            autocommit=False,
-        )
-
-    return connect
 
 
 def metadata_matches(metadata: CheckpointMetadata, expected: dict[str, Any]) -> bool:
