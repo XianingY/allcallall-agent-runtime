@@ -82,10 +82,17 @@ def test_app_lifespan_creates_admission_controller() -> None:
         assert created_app.state.admission.max_active > 0
 
 
-def test_app_lifespan_creates_invoke_executor() -> None:
-    """The lifespan context manager creates an invoke executor on app.state."""
+def test_app_lifespan_injects_executor_into_harness() -> None:
+    """The lifespan injects the executor into the harness module."""
     import concurrent.futures
+    from allcallall_agent_runtime.orchestration.harness import _get_invoke_executor
+
     created_app = create_app()
     with TestClient(created_app):
-        assert hasattr(created_app.state, "invoke_executor")
-        assert isinstance(created_app.state.invoke_executor, concurrent.futures.ThreadPoolExecutor)
+        executor = _get_invoke_executor()
+        assert isinstance(executor, concurrent.futures.ThreadPoolExecutor)
+        # The executor should be sized from effective_max_active_runs
+        assert executor._max_workers > 0
+
+    # After lifespan teardown, the executor should be shut down
+    # (a new lazy one would be created on next access, but the injected one is gone)

@@ -111,7 +111,7 @@ class AgentRuntimeConfig(BaseSettings):
     max_active_runs: int = 4
     max_queued_runs: int = 16
     max_queue_wait_seconds: float = 5.0
-    cancellation_grace_seconds: float = 2.0
+    cancellation_grace_seconds: float = 2.0  # TODO(task-10): wire into graceful cancellation
 
     model_config = {"env_prefix": "PY_AGENT_"}
 

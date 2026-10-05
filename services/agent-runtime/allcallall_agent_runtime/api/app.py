@@ -12,7 +12,7 @@ from ..admission import AdmissionController
 from ..async_tool_queue import QueuedTask, ToolQueueWorker, get_default_tool_queue
 from ..config import config as runtime_config
 from ..config import effective_max_active_runs
-from ..harness import shutdown_invoke_executor
+from ..harness import set_invoke_executor, shutdown_invoke_executor
 from ..tool_bridge import GoToolBridge
 from .routes import router
 
@@ -39,10 +39,13 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
         max_queued=runtime_config.max_queued_runs,
         max_queue_wait_seconds=runtime_config.max_queue_wait_seconds,
     )
-    application.state.invoke_executor = concurrent.futures.ThreadPoolExecutor(
+    # Single authoritative executor, sized from effective_max_active_runs and
+    # injected into the harness module so all code paths share one pool.
+    executor = concurrent.futures.ThreadPoolExecutor(
         max_workers=effective_active,
         thread_name_prefix="agent-harness-invoke",
     )
+    set_invoke_executor(executor)
     logger.info(
         "agent runtime starting: configured_active=%d effective_active=%d "
         "queue_limit=%d provider=%s checkpoint_pool_size=%d",
@@ -53,7 +56,6 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
         runtime_config.checkpoint_mysql_pool_size,
     )
     yield
-    application.state.invoke_executor.shutdown(wait=False)
     shutdown_invoke_executor(wait=False)
 
 

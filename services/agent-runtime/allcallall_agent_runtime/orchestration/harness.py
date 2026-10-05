@@ -69,12 +69,29 @@ class HarnessTimeoutExceeded(TimeoutError):
 # worker thread so a per-request timeout can be enforced via future.result().
 # Sized from the effective admission limit so the pool does not exceed
 # downstream capacity (checkpoint pool, provider rate limits, etc.).
+#
+# The authoritative executor is injected by the application lifespan via
+# ``set_invoke_executor()`` and closed exactly once on teardown via
+# ``shutdown_invoke_executor()``.  A lazy fallback is kept for tests and
+# standalone harness usage that bypass the lifespan.
 _invoke_executor: concurrent.futures.ThreadPoolExecutor | None = None
 _invoke_executor_lock = Lock()
 
 
+def set_invoke_executor(executor: concurrent.futures.ThreadPoolExecutor) -> None:
+    """Inject the invoke executor owned by the application lifespan.
+
+    Must be called before any workflow run.  The lifespan is responsible for
+    creating the executor (sized from ``effective_max_active_runs``) and
+    shutting it down on teardown.
+    """
+    global _invoke_executor
+    with _invoke_executor_lock:
+        _invoke_executor = executor
+
+
 def _get_invoke_executor() -> concurrent.futures.ThreadPoolExecutor:
-    """Return (and lazily create) the invoke executor sized from config."""
+    """Return the injected executor, or lazily create one as a fallback."""
     global _invoke_executor
     if _invoke_executor is None:
         with _invoke_executor_lock:
@@ -202,6 +219,12 @@ class AllCallAllAgentHarness:
             try:
                 result: dict[str, Any] = future.result(timeout=timeout)
             except concurrent.futures.TimeoutError as exc:
+                # Best-effort cancellation signal.  The graph thread may
+                # continue running until cooperative cancellation lands
+                # (Task 10); we do NOT free the admission lease early —
+                # the lease is released only when the graph thread finishes
+                # and the finally-block in _run_with_admission runs.
+                future.cancel()
                 raise HarnessTimeoutExceeded(timeout) from exc
             return result
         graph_result: dict[str, Any] = graph.invoke(state, config=run_config)

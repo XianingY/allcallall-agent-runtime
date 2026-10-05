@@ -189,31 +189,45 @@ def _minimal_request() -> Any:
     )
 
 
+
 # --------------------------------------------------------------------------- #
-# Invoke executor lifecycle                                                    #
+# Invoke executor lifecycle (single-owner injection pattern)                  #
 # --------------------------------------------------------------------------- #
 
 
-def test_shutdown_invoke_executor() -> None:
-    """shutdown_invoke_executor shuts down the lazy executor."""
+def test_set_invoke_executor_injects_executor() -> None:
+    """set_invoke_executor injects an executor that _get_invoke_executor returns."""
+    import concurrent.futures
     from allcallall_agent_runtime.orchestration.harness import (
         _get_invoke_executor,
+        set_invoke_executor,
         shutdown_invoke_executor,
     )
 
-    # Force creation of the executor
-    executor = _get_invoke_executor()
-    assert executor is not None
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="test-inject")
+        set_invoke_executor(executor)
+        assert _get_invoke_executor() is executor
+    finally:
+        shutdown_invoke_executor(wait=False)
 
-    # Shut it down
+
+def test_shutdown_invoke_executor_closes_injected() -> None:
+    """shutdown_invoke_executor shuts down the injected executor."""
+    import concurrent.futures
+    from allcallall_agent_runtime.orchestration.harness import (
+        _get_invoke_executor,
+        set_invoke_executor,
+        shutdown_invoke_executor,
+    )
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="test-shutdown")
+    set_invoke_executor(executor)
     shutdown_invoke_executor(wait=False)
 
-    # After shutdown, a new executor is created on next access
+    # After shutdown, _get_invoke_executor lazily creates a new one
     new_executor = _get_invoke_executor()
-    assert new_executor is not None
     assert new_executor is not executor
-
-    # Clean up
     shutdown_invoke_executor(wait=False)
 
 

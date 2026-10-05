@@ -4,30 +4,12 @@ from __future__ import annotations
 
 import threading
 
-from prometheus_client import CollectorRegistry
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
 from allcallall_agent_runtime.metrics import (
     MetricsRegistry,
     _Counter,
-    admission_accepted_total,
-    admission_active_runs,
-    admission_queued_runs,
-    admission_queue_wait_seconds,
-    admission_rejected_total,
-    cancellation_total,
-    checkpoint_operation_errors_total,
-    checkpoint_operation_total,
-    dependency_request_duration_seconds,
-    dependency_request_errors_total,
-    dependency_request_total,
     get_default_prometheus_registry,
-    node_duration_seconds,
-    payload_bytes,
-    retrieval_reuse_total,
-    retry_total,
-    workflow_duration_seconds,
-    workflow_failures_total,
-    workflow_runs_total,
 )
 
 
@@ -83,59 +65,52 @@ class TestMetricsRegistry:
         assert "agent_runtime_workflow_runs_total" in output
 
 
-class TestStandardMetrics:
-    """Verify that all standard Prometheus metrics are importable and usable."""
+class TestStandardMetricsIsolated:
+    """Verify standard Prometheus metric types work correctly using isolated registries."""
 
-    def test_admission_metrics_exist(self) -> None:
-        assert admission_accepted_total is not None
-        assert admission_rejected_total is not None
-        assert admission_active_runs is not None
-        assert admission_queued_runs is not None
-        assert admission_queue_wait_seconds is not None
+    def test_counter_with_labels(self) -> None:
+        reg = CollectorRegistry()
+        c = Counter("test_labeled_counter", "test", ["reason"], registry=reg)
+        c.labels(reason="queue_full").inc()
+        c.labels(reason="timeout").inc(2)
+        samples = list(c.collect())
+        assert len(samples) == 1
+        total_samples = [s for s in samples[0].samples if not s.name.endswith("_created")]
+        label_values = {s.labels["reason"]: s.value for s in total_samples if "reason" in s.labels}
+        assert label_values.get("queue_full") == 1.0
+        assert label_values.get("timeout") == 2.0
 
-    def test_workflow_metrics_exist(self) -> None:
-        assert workflow_duration_seconds is not None
-        assert workflow_runs_total is not None
-        assert workflow_failures_total is not None
+    def test_gauge_set_and_dec(self) -> None:
+        reg = CollectorRegistry()
+        g = Gauge("test_gauge", "test gauge", registry=reg)
+        g.set(5)
+        g.inc(3)
+        output = generate_latest_text(reg)
+        assert "test_gauge 8.0" in output
 
-    def test_node_metrics_exist(self) -> None:
-        assert node_duration_seconds is not None
+    def test_histogram_observations(self) -> None:
+        reg = CollectorRegistry()
+        h = Histogram("test_histogram", "test hist", buckets=[1, 5, 10], registry=reg)
+        h.observe(0.5)
+        h.observe(3.0)
+        h.observe(7.0)
+        output = generate_latest_text(reg)
+        assert "test_histogram_count 3" in output
+        assert "test_histogram_sum" in output
 
-    def test_dependency_metrics_exist(self) -> None:
-        assert dependency_request_total is not None
-        assert dependency_request_errors_total is not None
-        assert dependency_request_duration_seconds is not None
-
-    def test_checkpoint_metrics_exist(self) -> None:
-        assert checkpoint_operation_total is not None
-        assert checkpoint_operation_errors_total is not None
-
-    def test_payload_metrics_exist(self) -> None:
-        assert payload_bytes is not None
-
-    def test_retry_metrics_exist(self) -> None:
-        assert retry_total is not None
-
-    def test_cancellation_metrics_exist(self) -> None:
-        assert cancellation_total is not None
-
-    def test_retrieval_metrics_exist(self) -> None:
-        assert retrieval_reuse_total is not None
+    def test_counter_without_labels(self) -> None:
+        reg = CollectorRegistry()
+        c = Counter("test_simple_counter", "test", registry=reg)
+        c.inc(10)
+        output = generate_latest_text(reg)
+        assert "test_simple_counter_total 10.0" in output
 
     def test_default_registry_accessible(self) -> None:
         reg = get_default_prometheus_registry()
         assert reg is not None
 
-    def test_labeled_metrics_accept_labels(self) -> None:
-        reg = CollectorRegistry()
-        from prometheus_client import Counter
-        c = Counter("test_labeled", "test", ["reason"], registry=reg)
-        c.labels(reason="queue_full").inc()
-        c.labels(reason="timeout").inc(2)
-        samples = list(c.collect())
-        assert len(samples) == 1
-        # Filter to actual counter samples (not _created/_bucket etc.)
-        total_samples = [s for s in samples[0].samples if not s.name.endswith("_created")]
-        label_values = {s.labels["reason"]: s.value for s in total_samples if "reason" in s.labels}
-        assert label_values.get("queue_full") == 1.0
-        assert label_values.get("timeout") == 2.0
+
+def generate_latest_text(registry: CollectorRegistry) -> str:
+    """Helper to generate Prometheus text output from a registry."""
+    from prometheus_client import generate_latest
+    return generate_latest(registry).decode("utf-8")

@@ -44,13 +44,16 @@ def _run_with_admission(
 ) -> _R:
     """Run a workflow through admission control.
 
-    Acquires an admission lease, runs the workflow, and releases the lease
-    in ``finally``.  Maps admission rejection and timeout to HTTP errors.
+    Acquires an admission lease, increments ``workflow_runs_total`` exactly
+    once, runs the workflow, and releases the lease in ``finally``.  Maps
+    admission rejection and timeout to HTTP errors.
 
     When the admission controller is not available (e.g. in tests that bypass
-    the lifespan), the workflow runs without admission control.
+    the lifespan), the workflow runs without admission control but still
+    increments the counter and handles timeouts.
     """
     admission = _get_admission(request)
+
     if admission is None:
         workflow_runs_total.inc()
         try:
@@ -77,30 +80,18 @@ def _run_with_admission(
 
 
 def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
-    """Run the meeting brief workflow."""
-    workflow_runs_total.inc()
-    try:
-        return get_harness().run_meeting_brief(request)
-    except HarnessTimeoutExceeded:
-        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+    """Run the meeting brief workflow (no metrics or timeout handling — delegated to _run_with_admission)."""
+    return get_harness().run_meeting_brief(request)
 
 
 def run_react_agent(request: AgentRunRequest) -> AgentRunResponse:
-    """Run the react agent workflow."""
-    workflow_runs_total.inc()
-    try:
-        return get_harness().run_react_agent(request)
-    except HarnessTimeoutExceeded:
-        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+    """Run the react agent workflow (no metrics or timeout handling — delegated to _run_with_admission)."""
+    return get_harness().run_react_agent(request)
 
 
 def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
-    """Run a workflow with the given request."""
-    workflow_runs_total.inc()
-    try:
-        return get_harness().run_workflow(request)
-    except HarnessTimeoutExceeded:
-        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+    """Run a workflow (no metrics or timeout handling — delegated to _run_with_admission)."""
+    return get_harness().run_workflow(request)
 
 
 @router.get("/health")
