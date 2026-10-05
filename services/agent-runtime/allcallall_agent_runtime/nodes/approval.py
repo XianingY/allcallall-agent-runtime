@@ -21,11 +21,13 @@ from ..helpers import (
     WORKFLOW_RISK_REVIEW,
     runtime_subject_id,
 )
+from ..deadline import get_current_deadline
 from ..state import GraphState
 
 
 def propose_tools(state: GraphState) -> GraphState:
     """Propose write tools based on workflow output."""
+    _check_cancelled()
     request = state["request"]
     risk_assessment = state.get("risk_assessment", RiskAssessment())
     base: dict[str, Any] = {
@@ -82,6 +84,7 @@ def propose_tools(state: GraphState) -> GraphState:
 
 def approval_gate(state: GraphState) -> GraphState:
     """Wait for human approval of proposed tool calls."""
+    _check_cancelled()
     trace = state.get("trace_events", [])
     trace.append(TraceEvent(event="graph.node.started", node="approval_gate", status="running"))
     trace.append(
@@ -97,6 +100,7 @@ def approval_gate(state: GraphState) -> GraphState:
 
 def finalize(state: GraphState) -> GraphState:
     """Finalize the workflow execution."""
+    _check_cancelled()
     trace = state.get("trace_events", [])
     trace.append(TraceEvent(event="graph.node.started", node="finalize", status="running"))
     trace.append(TraceEvent(event="graph.node.completed", node="finalize", status="completed"))
@@ -163,3 +167,11 @@ def workflow_tool_proposals(
             )
         )
     return proposals
+
+
+
+def _check_cancelled() -> None:
+    """Raise ExecutionCancelled if the current execution deadline has been cancelled or expired."""
+    deadline = get_current_deadline()
+    if deadline is not None:
+        deadline.raise_if_cancelled()

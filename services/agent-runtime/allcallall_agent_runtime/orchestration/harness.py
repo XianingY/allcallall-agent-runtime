@@ -49,6 +49,15 @@ from ..models import (
     WorkflowRequest,
     WorkflowResponse,
 )
+from ..deadline import (
+    ExecutionCancelled,
+    get_current_deadline,
+)
+from ..metrics import (
+    cancel_grace_exceeded_total,
+    cancel_requested_total,
+    cancelled_total,
+)
 from ..prompts import prompt_version_for
 from ..providers import ProviderError, create_provider
 
@@ -205,26 +214,61 @@ class AllCallAllAgentHarness:
         return self._graph
 
     def _invoke_graph(self, state: dict[str, Any], run_config: dict[str, Any]) -> dict[str, Any]:
-        """Invoke the compiled graph, enforcing ``request_timeout_seconds``.
+        """Invoke the compiled graph, enforcing the execution deadline.
 
-        The LangGraph ``invoke`` is blocking, so it runs on a worker thread;
-        ``future.result(timeout=...)`` turns a runaway run into a clear
-        :class:`HarnessTimeoutExceeded` instead of hanging the request worker.
-        A ``timeout`` of 0 disables the deadline (legacy behavior).
+        The LangGraph ``invoke`` is blocking, so it runs on a worker thread.
+        The deadline comes from the request-scoped ``ExecutionDeadline`` (set
+        by the HTTP layer from ``X-AllCallAll-Deadline``), falling back to
+        ``request_timeout_seconds`` when no deadline is bound.
+
+        On timeout, cooperative cancellation is requested on the deadline and
+        a grace period (``cancellation_grace_seconds``) is waited for the graph
+        to exit cooperatively.  The admission lease is NOT released early —
+        it is released only when the graph thread finishes and the
+        ``finally``-block in ``_run_with_admission`` runs.
         """
+
         graph = self._get_graph()
+        deadline = get_current_deadline()
         timeout = float(app_config.request_timeout_seconds)
+
+        # Derive the effective timeout from the deadline when one is bound.
+        if deadline is not None and not deadline.cancelled:
+            remaining = deadline.remaining_seconds()
+            if timeout <= 0 or remaining < timeout:
+                timeout = remaining
+
         if timeout and timeout > 0:
             future = _get_invoke_executor().submit(graph.invoke, state, config=run_config)
             try:
                 result: dict[str, Any] = future.result(timeout=timeout)
             except concurrent.futures.TimeoutError as exc:
-                # Best-effort cancellation signal.  The graph thread may
-                # continue running until cooperative cancellation lands
-                # (Task 10); we do NOT free the admission lease early —
-                # the lease is released only when the graph thread finishes
-                # and the finally-block in _run_with_admission runs.
+                # Request cooperative cancellation so the graph thread can
+                # exit at the next raise_if_cancelled() checkpoint.
+                if deadline is not None and not deadline.cancelled:
+                    try:
+                        deadline.cancel("deadline_exceeded")
+                    except ValueError:
+                        pass
+                    cancel_requested_total.labels(reason="deadline_exceeded").inc()
+                # Best-effort future cancellation (Thread pool executors
+                # do not actually interrupt the worker thread, but cancel()
+                # prevents result() from returning if the thread hasn't
+                # finished yet).
                 future.cancel()
+                # Wait up to the grace period for the graph to exit
+                # cooperatively.  If the grace period expires, the graph
+                # thread may still be running, but we return 504 so the
+                # HTTP worker is freed.  The admission lease stays held
+                # until the graph thread actually finishes.
+                grace = float(app_config.cancellation_grace_seconds)
+                if grace > 0:
+                    try:
+                        future.result(timeout=grace)
+                    except concurrent.futures.TimeoutError:
+                        cancel_grace_exceeded_total.inc()
+                    except Exception:
+                        pass  # Graph exited (possibly with an error)
                 raise HarnessTimeoutExceeded(timeout) from exc
             return result
         graph_result: dict[str, Any] = graph.invoke(state, config=run_config)
@@ -264,6 +308,11 @@ class AllCallAllAgentHarness:
             # (SQLite/MySQL). Derive it from the request so runs are durable and
             # resumable, and stable across retries of the same workflow run.
             run_config = {"configurable": {"thread_id": f"aca-{request.workflow_run_id}"}}
+            # Bind the request-scoped deadline into the graph state so nodes
+            # can access it.  The deadline is also available via the module-level
+            # context variable (set by the HTTP layer), which is the primary
+            # access path for nodes.
+            deadline = get_current_deadline()
             result = self._invoke_graph(
                 {
                     "request": request,
@@ -273,6 +322,8 @@ class AllCallAllAgentHarness:
                     "role_results": [],
                     "skill_instructions": skill_instructions,
                     "long_term_memory": long_term_memory,
+                    "execution_deadline": deadline,
+                    "cancellation_token": deadline,
                 },
                 run_config,
             )
@@ -280,6 +331,21 @@ class AllCallAllAgentHarness:
             # execution via the Go tool bridge (a real, durable handoff rather
             # than dropping them). No-op when the queue is disabled.
             self._enqueue_proposals(request, result.get("proposed_tool_calls", []))
+        except ExecutionCancelled as exc:
+            cancelled_total.labels(reason=exc.reason).inc()
+            return self._failure_response(
+                request,
+                provider_name=provider_name,
+                error=f"execution cancelled: {exc.reason}",
+                trace=[
+                    TraceEvent(
+                        event="execution.cancelled",
+                        node="harness",
+                        status="cancelled",
+                        metadata={"reason": exc.reason},
+                    )
+                ],
+            )
         except ProviderError as exc:
             return self._failure_response(
                 request,

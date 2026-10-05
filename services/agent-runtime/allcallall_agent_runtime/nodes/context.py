@@ -24,11 +24,13 @@ from ..helpers import (
     tool_allowed,
     unique_strings,
 )
+from ..deadline import get_current_deadline
 from ..state import GraphState
 
 
 def collect_context(state: GraphState) -> GraphState:
     """Collect and validate the incoming request context."""
+    _check_cancelled()
     request = state["request"]
     trace = state.get("trace_events", [])
     prompt_version = prompt_version_for(request)
@@ -53,6 +55,7 @@ def collect_context(state: GraphState) -> GraphState:
 
 def retrieval_planner(state: GraphState) -> GraphState:
     """Plan retrieval steps based on workflow preset and configuration."""
+    _check_cancelled()
     request = state["request"]
     trace = state.get("trace_events", [])
     config = resolve_agentic_rag_config(request.agentic_rag)
@@ -278,3 +281,11 @@ def build_retrieval_plan(
 
 def join_query(*parts: str) -> str:
     return " ".join(unique_strings([part for part in parts if part.strip()]))
+
+
+
+def _check_cancelled() -> None:
+    """Raise ExecutionCancelled if the current execution deadline has been cancelled or expired."""
+    deadline = get_current_deadline()
+    if deadline is not None:
+        deadline.raise_if_cancelled()

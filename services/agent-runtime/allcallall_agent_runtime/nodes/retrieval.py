@@ -28,6 +28,7 @@ from ..helpers import (
     top_snippets,
     unique_strings,
 )
+from ..deadline import get_current_deadline
 from ..state import GraphState
 from ..synthesis import synthesize_action_items
 
@@ -38,6 +39,8 @@ def retrieval_loop(state: GraphState) -> GraphState:
     trace = state.get("trace_events", [])
     plan = state.get("retrieval_plan", RetrievalPlan())
     trace.append(TraceEvent(event="graph.node.started", node="retrieval_loop", status="running"))
+    # Cooperative cancellation checkpoint before entering the retrieval loop.
+    _check_cancelled()
     if not plan.enabled:
         trace.append(
             TraceEvent(
@@ -58,6 +61,8 @@ def retrieval_loop(state: GraphState) -> GraphState:
     seen_chunks: set[str] = set()
     confidence = 0.0
     for step in plan.steps[: max(1, min(plan.max_steps, 3))]:
+        # Check cancellation at each bounded loop iteration.
+        _check_cancelled()
         tool_input = {
             "conversation_id": request.conversation_id,
             "query": step.query,
@@ -407,3 +412,11 @@ def critic_check(state: GraphState) -> GraphState:
     )
     trace.append(TraceEvent(event="graph.node.completed", node="critic_check", status="completed"))
     return {"trace_events": trace, "critic_result": result}
+
+
+
+def _check_cancelled() -> None:
+    """Raise ExecutionCancelled if the current execution deadline has been cancelled or expired."""
+    deadline = get_current_deadline()
+    if deadline is not None:
+        deadline.raise_if_cancelled()

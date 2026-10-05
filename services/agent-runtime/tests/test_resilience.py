@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import httpx
 import pytest
 from typing import Any
@@ -199,3 +200,108 @@ def _dummy_step() -> RetrievalPlanStep:
 
 def _dummy_plan() -> RetrievalPlan:
     return RetrievalPlan(min_confidence=0.6, steps=[_dummy_step()])
+
+
+# --------------------------------------------------------------------------- #
+# Task 10: RetryBudget integration with provider / tool bridge / RAG
+# --------------------------------------------------------------------------- #
+
+
+def test_with_retry_budget_limits_provider_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When a RetryBudget is provided, with_retry stops when the budget is exhausted."""
+    from allcallall_agent_runtime.deadline import ExecutionDeadline, RetryBudget
+
+    calls = {"n": 0}
+
+    def flaky() -> int:
+        calls["n"] += 1
+        raise ProviderError("transient", retryable=True)
+
+    deadline = ExecutionDeadline(monotonic_deadline=100.0)  # already expired
+    budget = RetryBudget(max_attempts=2, deadline=deadline, jitter=lambda _: 0.0)
+
+    with pytest.raises(ProviderError):
+        with_retry(
+            flaky,
+            should_retry=lambda e: isinstance(e, ProviderError) and e.retryable,
+            max_attempts=5,
+            base_delay_sec=0,
+            max_delay_sec=0,
+            budget=budget,
+        )
+    # Budget is expired, so next_delay returns None immediately.
+    # The first call runs, but no retries are allowed.
+    assert calls["n"] == 1
+
+
+def test_with_retry_budget_allows_retries_within_deadline() -> None:
+    """When the budget has room, with_retry retries and eventually succeeds."""
+    from allcallall_agent_runtime.deadline import ExecutionDeadline, RetryBudget
+
+    calls = {"n": 0}
+
+    def flaky() -> int:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise ProviderError("transient", retryable=True)
+        return 42
+
+    deadline = ExecutionDeadline(monotonic_deadline=time.monotonic() + 10.0)
+    budget = RetryBudget(max_attempts=3, deadline=deadline, jitter=lambda _: 0.0)
+
+    result = with_retry(
+        flaky,
+        should_retry=lambda e: isinstance(e, ProviderError) and e.retryable,
+        max_attempts=5,
+        base_delay_sec=0.001,
+        max_delay_sec=0.001,
+        budget=budget,
+    )
+    assert result == 42
+    assert calls["n"] == 3
+
+
+def test_provider_and_outer_retries_share_budget() -> None:
+    """Provider retries and outer workflow retries consume the same budget."""
+    from allcallall_agent_runtime.deadline import ExecutionDeadline, RetryBudget
+
+    class _FakeClock:
+        def __init__(self) -> None:
+            self._now = 100.0
+        def monotonic(self) -> float:
+            return self._now
+        def advance(self, s: float) -> None:
+            self._now += s
+
+    clock = _FakeClock()
+    deadline = ExecutionDeadline(monotonic_deadline=105.0, clock=clock.monotonic)
+    budget = RetryBudget(max_attempts=3, deadline=deadline, jitter=lambda _: 0.0)
+
+    # Simulate provider using 2 budget slots
+    d1 = budget.next_delay(base=0.01, maximum=0.1)
+    assert d1 is not None
+    d2 = budget.next_delay(base=0.01, maximum=0.1)
+    assert d2 is not None
+
+    # Outer workflow tries to retry — only 1 slot left
+    d3 = budget.next_delay(base=0.01, maximum=0.1)
+    assert d3 is not None
+
+    # Budget exhausted
+    d4 = budget.next_delay(base=0.01, maximum=0.1)
+    assert d4 is None
+
+
+def test_execution_deadline_cooperative_cancellation_in_node() -> None:
+    """Nodes that call raise_if_cancelled() propagate ExecutionCancelled."""
+    from allcallall_agent_runtime.deadline import ExecutionCancelled, ExecutionDeadline, set_current_deadline
+
+    deadline = ExecutionDeadline(monotonic_deadline=time.monotonic() + 60.0)
+    deadline.cancel("client_cancelled")
+    set_current_deadline(deadline)
+    try:
+        with pytest.raises(ExecutionCancelled) as exc_info:
+            deadline.raise_if_cancelled()
+        assert exc_info.value.reason == "client_cancelled"
+    finally:
+        set_current_deadline(None)

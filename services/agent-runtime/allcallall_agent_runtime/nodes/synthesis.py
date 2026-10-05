@@ -40,11 +40,13 @@ from ..synthesis import (
     synthesize_next_step,
     synthesize_summary,
 )
+from ..deadline import get_current_deadline
 from ..state import GraphState
 
 
 def decompose(state: GraphState) -> GraphState:
     """Decompose the workflow into role-based tasks."""
+    _check_cancelled()
     trace = state.get("trace_events", [])
     trace.append(TraceEvent(event="graph.node.started", node="decompose", status="running"))
     trace.append(
@@ -64,6 +66,7 @@ def decompose(state: GraphState) -> GraphState:
 
 def searcher(state: GraphState) -> GraphState:
     """Execute bounded ReAct search for the searcher role."""
+    _check_cancelled()
     request = request_with_runtime_context(state)
     trace = state.get("trace_events", [])
     trace.append(TraceEvent(event="graph.node.started", node="searcher", role="searcher", status="running"))
@@ -122,6 +125,7 @@ def memory_agent(state: GraphState) -> GraphState:
 
 def synthesize(state: GraphState) -> GraphState:
     """Synthesize summary, action items, and next step."""
+    _check_cancelled()
     request = request_with_runtime_context(state)
     citations = citations_from_chunks(request.context_chunks)
     snippets = top_snippets(request.context_chunks, 4)
@@ -534,6 +538,7 @@ def insufficient_context_summary(request: WorkflowRequest, sufficiency: ContextS
 
 def risk_analyst(state: GraphState) -> GraphState:
     """Execute bounded ReAct search for the risk analyst role."""
+    _check_cancelled()
     request = request_with_runtime_context(state)
     trace = state.get("trace_events", [])
     trace.append(
@@ -600,6 +605,7 @@ def build_risk_assessment(flags: list[str]) -> RiskAssessment:
 
 def reflect_and_plan_memory(state: GraphState) -> GraphState:
     """Reflect on the grounded run and decide whether memory should be upserted."""
+    _check_cancelled()
     request = state["request"]
     sufficiency = state.get("context_sufficiency", ContextSufficiency())
     summary = state.get("summary", "")
@@ -647,3 +653,11 @@ def reflect_and_plan_memory(state: GraphState) -> GraphState:
     )
     trace.append(TraceEvent(event="graph.node.completed", node="memory_reflection", status="completed"))
     return {"trace_events": trace, "memory_reflection": reflection}
+
+
+
+def _check_cancelled() -> None:
+    """Raise ExecutionCancelled if the current execution deadline has been cancelled or expired."""
+    deadline = get_current_deadline()
+    if deadline is not None:
+        deadline.raise_if_cancelled()

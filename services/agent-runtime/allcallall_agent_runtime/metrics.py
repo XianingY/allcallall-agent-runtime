@@ -148,6 +148,23 @@ cancellation_total = Counter(
     "Total workflow runs cancelled (HTTP caller timed out)",
     registry=_default_registry,
 )
+cancel_requested_total = Counter(
+    "agent_runtime_cancel_requested_total",
+    "Total times cooperative cancellation was requested on a workflow run",
+    ["reason"],  # bounded: client_cancelled | deadline_exceeded | shutdown | lease_lost
+    registry=_default_registry,
+)
+cancelled_total = Counter(
+    "agent_runtime_cancelled_total",
+    "Total workflow runs that observed cancellation and exited cooperatively",
+    ["reason"],
+    registry=_default_registry,
+)
+cancel_grace_exceeded_total = Counter(
+    "agent_runtime_cancel_grace_exceeded_total",
+    "Total workflow runs where the cancellation grace period expired before cooperative exit",
+    registry=_default_registry,
+)
 
 # --- Retrieval reuse ---
 retrieval_reuse_total = Counter(

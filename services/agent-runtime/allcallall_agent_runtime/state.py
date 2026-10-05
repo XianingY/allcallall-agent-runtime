@@ -42,7 +42,14 @@ class RoleAllocation:
 
 
 class GraphState(TypedDict, total=False):
-    """State type for the LangGraph workflow."""
+    """State type for the LangGraph workflow.
+
+    Request-scoped context keys (``execution_deadline``, ``cancellation_token``)
+    are set fresh on every invocation and must be excluded from checkpoint
+    serialization so a resumed run starts with a new deadline.  Nodes access
+    them primarily via :func:`deadline.get_current_deadline` rather than
+    reading from the state dict, which keeps the access path checkpoint-free.
+    """
 
     request: WorkflowRequest
     provider: Any  # LLMProvider
@@ -86,3 +93,9 @@ class GraphState(TypedDict, total=False):
     skill_instructions: str
     # --- Module 4: retrieved durable long-term memory (opt-in) --- #
     long_term_memory: list[str]
+    # --- Task 10: execution deadline and cooperative cancellation --- #
+    # Request-scoped; excluded from checkpoint serialization.  Nodes read
+    # these via deadline.get_current_deadline() rather than state.get() so
+    # the access path is naturally checkpoint-free.
+    execution_deadline: Any  # ExecutionDeadline | None
+    cancellation_token: Any  # ExecutionDeadline | None (same object)

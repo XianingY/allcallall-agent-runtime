@@ -25,6 +25,7 @@ from ..helpers import (
     WORKFLOW_RISK_REVIEW,
 )
 from ..models import TraceEvent, WorkflowRequest
+from ..deadline import get_current_deadline
 from ..state import GraphState, RoleAllocation
 
 # Canonical execution order. All preset role lists are subsequences of this so
@@ -79,6 +80,7 @@ def route_roles(state: GraphState) -> dict[str, Any]:
     computed :class:`RoleAllocation`. The DAG's conditional edges read
     ``role_allocation.roles`` to decide which role node to visit next.
     """
+    _check_cancelled()
     request = state["request"]
     intent = state.get("intent_route")
     preset = request.preset
@@ -148,3 +150,11 @@ def next_role_after(state: GraphState, current_role: str | None) -> str:
         if idx < len(roles) - 1:
             return roles[idx + 1]
     return "merge"
+
+
+
+def _check_cancelled() -> None:
+    """Raise ExecutionCancelled if the current execution deadline has been cancelled or expired."""
+    deadline = get_current_deadline()
+    if deadline is not None:
+        deadline.raise_if_cancelled()

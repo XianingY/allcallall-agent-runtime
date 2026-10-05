@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Callable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -8,9 +9,15 @@ from ..admission import AdmissionController, AdmissionRejected
 from ..api_auth import require_auth
 from ..async_tool_queue import get_default_tool_queue
 from ..config import config as runtime_config
+from ..deadline import ExecutionCancelled, ExecutionDeadline, set_current_deadline
 from ..helpers import SUPPORTED_WORKFLOWS
 from ..harness import HarnessTimeoutExceeded, get_harness
-from ..metrics import registry, workflow_runs_total
+from ..metrics import (
+    cancel_requested_total,
+    cancelled_total,
+    registry,
+    workflow_runs_total,
+)
 from ..models import (
     AgentRunRequest,
     AgentRunResponse,
@@ -21,10 +28,29 @@ from ..models import (
 )
 from ..skill_registry import build_production_registry
 
+logger = logging.getLogger(__name__)
 
 _R = TypeVar("_R")
 
 router = APIRouter()
+
+
+def _parse_deadline_from_headers(request: Request) -> ExecutionDeadline:
+    """Parse the ``X-AllCallAll-Deadline`` header into an ExecutionDeadline.
+
+    The Go runtime sends ``X-AllCallAll-Deadline`` as an RFC3339Nano UTC
+    timestamp and ``X-AllCallAll-Attempt`` as the attempt counter (currently
+    unused by the Python runtime but logged for observability).  When the
+    deadline header is absent or malformed, the local
+    ``request_timeout_seconds`` default is used.
+    """
+    deadline_header = request.headers.get("x-allcallall-deadline")
+    attempt_header = request.headers.get("x-allcallall-attempt")
+    default_seconds = float(runtime_config.request_timeout_seconds) if runtime_config.request_timeout_seconds > 0 else 120.0
+    deadline = ExecutionDeadline.from_header(deadline_header, default_seconds=default_seconds)
+    if attempt_header:
+        logger.debug("execution attempt=%s deadline_remaining=%.1fs", attempt_header, deadline.remaining_seconds())
+    return deadline
 
 
 def _get_admission(request: Request) -> AdmissionController | None:
@@ -42,7 +68,7 @@ def _run_with_admission(
     run_func: Callable[..., _R],
     run_request: object,
 ) -> _R:
-    """Run a workflow through admission control.
+    """Run a workflow through admission control with deadline propagation.
 
     Acquires an admission lease, increments ``workflow_runs_total`` exactly
     once, runs the workflow, and releases the lease in ``finally``.  Maps
@@ -51,15 +77,29 @@ def _run_with_admission(
     When the admission controller is not available (e.g. in tests that bypass
     the lifespan), the workflow runs without admission control but still
     increments the counter and handles timeouts.
+
+    On HTTP timeout (``HarnessTimeoutExceeded``), requests cooperative
+    cancellation and returns 504.  The admission lease and inflight gauge
+    remain occupied until the graph future exits (the lease is released in
+    the ``finally`` block, which runs after the future completes or the grace
+    period expires).
     """
     admission = _get_admission(request)
+    deadline = _parse_deadline_from_headers(request)
 
     if admission is None:
         workflow_runs_total.inc()
+        set_current_deadline(deadline)
         try:
             return run_func(run_request)
         except HarnessTimeoutExceeded:
+            _request_cancellation(deadline, "deadline_exceeded")
             raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+        except ExecutionCancelled as exc:
+            cancelled_total.labels(reason=exc.reason).inc()
+            raise HTTPException(status_code=504, detail=f"Workflow cancelled: {exc.reason}") from None
+        finally:
+            set_current_deadline(None)
 
     org_id = getattr(run_request, "organization_id", 0)
     try:
@@ -72,11 +112,37 @@ def _run_with_admission(
         ) from None
     try:
         workflow_runs_total.inc()
-        return run_func(run_request)
-    except HarnessTimeoutExceeded:
-        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+        set_current_deadline(deadline)
+        try:
+            return run_func(run_request)
+        except HarnessTimeoutExceeded:
+            _request_cancellation(deadline, "deadline_exceeded")
+            raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+        except ExecutionCancelled as exc:
+            cancelled_total.labels(reason=exc.reason).inc()
+            raise HTTPException(status_code=504, detail=f"Workflow cancelled: {exc.reason}") from None
+        finally:
+            set_current_deadline(None)
     finally:
+        # The admission lease is released only after the graph future exits,
+        # keeping the inflight capacity occupied until the work is truly done.
         lease.close()
+
+
+def _request_cancellation(deadline: ExecutionDeadline, reason: str) -> None:
+    """Request cooperative cancellation on a deadline and record metrics.
+
+    After requesting cancellation, waits up to ``cancellation_grace_seconds``
+    for the graph to exit cooperatively.  If the grace period expires, records
+    a ``cancel_grace_exceeded`` counter.
+    """
+    if not deadline.cancelled:
+        try:
+            deadline.cancel(reason)
+        except ValueError:
+            # Invalid reason — shouldn't happen, but don't break the error path.
+            pass
+        cancel_requested_total.labels(reason=reason).inc()
 
 
 def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
