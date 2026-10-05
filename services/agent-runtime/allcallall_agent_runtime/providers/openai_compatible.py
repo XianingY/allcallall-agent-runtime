@@ -9,6 +9,7 @@ import allcallall_agent_runtime.config as _cfg
 from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import WorkflowRequest
 from allcallall_agent_runtime.prompts import structured_prompt_for
+from allcallall_agent_runtime.deadline import current_retry_budget
 from allcallall_agent_runtime.retry import with_retry
 
 from .base import ProviderError, ProviderSynthesis
@@ -91,12 +92,18 @@ class OpenAICompatibleProvider:
         # Retry only transient faults (timeout/network/429/5xx). Permanent
         # failures (auth/request/decode) propagate immediately. On exhaustion the
         # last ProviderError is re-raised and the harness degrades to rules.
+        # When a request-scoped deadline is bound, retries consume the shared
+        # budget so provider and workflow retries are bounded by the remaining
+        # deadline.  Without a deadline (standalone / test), legacy max_attempts
+        # behaviour is preserved.
+        budget = current_retry_budget(max_attempts=self.max_retries + 1)
         response = with_retry(
             _call,
             should_retry=lambda exc: isinstance(exc, ProviderError) and exc.retryable,
             max_attempts=self.max_retries + 1,
             base_delay_sec=_cfg.config.retry_base_delay_sec,
             max_delay_sec=_cfg.config.retry_max_delay_sec,
+            budget=budget,
             on_retry=lambda exc, attempt: registry.counter(
                 "agent_runtime_provider_retries_total",
                 "Retries performed by the LLM provider client on transient faults",

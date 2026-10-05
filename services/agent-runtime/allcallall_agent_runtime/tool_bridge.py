@@ -9,6 +9,7 @@ import httpx
 import allcallall_agent_runtime.config as _cfg
 from .metrics import registry
 from .models import ContextChunk, WorkflowRequest
+from .deadline import current_retry_budget
 from .retry import with_retry
 
 
@@ -83,12 +84,17 @@ class GoToolBridge:
 
         # Only transient faults (network error, HTTP 429/5xx) are retried; a
         # 4xx from the Go backend is a permanent client/permission error.
+        # When a request-scoped deadline is bound, retries consume the shared
+        # budget so read-tool and workflow retries are bounded by the remaining
+        # deadline.
+        budget = current_retry_budget(max_attempts=self.max_retries + 1)
         response = with_retry(
             _call,
             should_retry=lambda exc: isinstance(exc, ToolBridgeError) and exc.retryable,
             max_attempts=self.max_retries + 1,
             base_delay_sec=_cfg.config.retry_base_delay_sec,
             max_delay_sec=_cfg.config.retry_max_delay_sec,
+            budget=budget,
             on_retry=lambda exc, attempt: registry.counter(
                 "agent_runtime_tool_bridge_retries_total",
                 "Retries performed by the Go tool bridge client on transient faults",
@@ -151,17 +157,15 @@ class GoToolBridge:
                 )
             return response
 
-        with_retry(
-            _call,
-            should_retry=lambda exc: isinstance(exc, ToolBridgeError) and exc.retryable,
-            max_attempts=self.max_retries + 1,
-            base_delay_sec=_cfg.config.retry_base_delay_sec,
-            max_delay_sec=_cfg.config.retry_max_delay_sec,
-            on_retry=lambda exc, attempt: registry.counter(
-                "agent_runtime_tool_bridge_retries_total",
-                "Retries performed by the Go tool bridge client on transient faults",
-            ).inc(),
-        )
+        # Write operations execute exactly once at the HTTP transport level.
+        # The async tool queue handles retries via its own bounded backoff and
+        # dead-letter policy; retrying here would violate write-idempotency
+        # expectations and risk duplicate side-effects.  Errors are classified
+        # (retryable flag) so the queue worker can decide whether to re-enqueue.
+        try:
+            _call()
+        except ToolBridgeError:
+            raise
 
 
 def chunks_from_tool_output(output_json: str) -> list[ContextChunk]:

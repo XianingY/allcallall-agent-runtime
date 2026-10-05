@@ -12,9 +12,10 @@ Cancellation reasons are bounded to:
   - ``shutdown``          — Process is shutting down.
   - ``lease_lost``        — Admission lease was revoked.
 
-Both ``execution_deadline`` and ``cancellation_token`` are request-scoped
-context keys carried on the LangGraph state; they are explicitly excluded
-from checkpoint serialization so a resumed run starts with a fresh deadline.
+The request-scoped deadline is propagated via a module-level context variable
+(:func:`get_current_deadline`), not via LangGraph state keys, so it is
+naturally excluded from checkpoint serialization and a resumed run starts
+with a fresh deadline.
 """
 
 from __future__ import annotations
@@ -283,6 +284,33 @@ def _parse_rfc3339(value: str) -> datetime | None:
 
 
 # --------------------------------------------------------------------------- #
+# Convenience: derive a RetryBudget from the current request-scoped deadline
+# --------------------------------------------------------------------------- #
+
+
+def current_retry_budget(max_attempts: int) -> RetryBudget | None:
+    """Derive a :class:`RetryBudget` from the current execution deadline.
+
+    Returns ``None`` when no deadline is bound (standalone / test usage),
+    preserving legacy retry behaviour.  When a deadline is bound, the budget
+    is scoped to the remaining time so that provider and workflow retries
+    share one pool and only retry when another attempt fits inside the
+    remaining deadline.
+
+    Args:
+        max_attempts: Maximum retry attempts (typically from config, e.g.
+            ``provider_max_retries + 1``).
+
+    Returns:
+        A :class:`RetryBudget` scoped to the current deadline, or ``None``.
+    """
+    deadline = get_current_deadline()
+    if deadline is None:
+        return None
+    return RetryBudget(max_attempts=max_attempts, deadline=deadline)
+
+
+# --------------------------------------------------------------------------- #
 # Request-scoped context variable for graph runtime access
 # --------------------------------------------------------------------------- #
 
@@ -304,6 +332,13 @@ def get_current_deadline() -> ExecutionDeadline | None:
 
 def set_current_deadline(deadline: ExecutionDeadline | None) -> None:
     """Bind or clear the execution deadline for the current request scope."""
+    if deadline is not None and deadline.remaining_seconds() <= 0:
+        import logging
+        logging.getLogger(__name__).debug(
+            "execution deadline is already expired or unbound (remaining=%.1fs); "
+            "cooperative cancellation will fire immediately",
+            deadline.remaining_seconds(),
+        )
     _current_deadline.set(deadline)
 
 

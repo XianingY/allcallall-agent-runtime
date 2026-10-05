@@ -8,6 +8,7 @@ import httpx
 import allcallall_agent_runtime.config as _cfg
 from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import ContextChunk, RetrievalPlan, RetrievalPlanStep, WorkflowRequest
+from allcallall_agent_runtime.deadline import current_retry_budget
 from allcallall_agent_runtime.retry import with_retry
 
 
@@ -77,12 +78,16 @@ class RAGRuntimeClient:
 
         # Only transient faults (network error, HTTP 429/5xx) are retried; a 4xx
         # from the RAG runtime is a permanent request error.
+        # When a request-scoped deadline is bound, retries consume the shared
+        # budget so RAG and workflow retries are bounded by the remaining deadline.
+        budget = current_retry_budget(max_attempts=self.max_retries + 1)
         response = with_retry(
             _call,
             should_retry=lambda exc: isinstance(exc, RAGRuntimeError) and exc.retryable,
             max_attempts=self.max_retries + 1,
             base_delay_sec=_cfg.config.retry_base_delay_sec,
             max_delay_sec=_cfg.config.retry_max_delay_sec,
+            budget=budget,
             on_retry=lambda exc, attempt: registry.counter(
                 "agent_runtime_rag_retries_total",
                 "Retries performed by the RAG runtime client on transient faults",

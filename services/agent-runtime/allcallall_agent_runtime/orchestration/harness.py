@@ -308,11 +308,9 @@ class AllCallAllAgentHarness:
             # (SQLite/MySQL). Derive it from the request so runs are durable and
             # resumable, and stable across retries of the same workflow run.
             run_config = {"configurable": {"thread_id": f"aca-{request.workflow_run_id}"}}
-            # Bind the request-scoped deadline into the graph state so nodes
-            # can access it.  The deadline is also available via the module-level
-            # context variable (set by the HTTP layer), which is the primary
-            # access path for nodes.
-            deadline = get_current_deadline()
+            # The request-scoped deadline is propagated via the module-level
+            # context variable (set by the HTTP layer), not via graph state,
+            # so it is naturally excluded from checkpoint serialization.
             result = self._invoke_graph(
                 {
                     "request": request,
@@ -322,8 +320,6 @@ class AllCallAllAgentHarness:
                     "role_results": [],
                     "skill_instructions": skill_instructions,
                     "long_term_memory": long_term_memory,
-                    "execution_deadline": deadline,
-                    "cancellation_token": deadline,
                 },
                 run_config,
             )

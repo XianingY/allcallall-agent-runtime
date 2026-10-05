@@ -223,3 +223,115 @@ class TestRetryBudget:
         r2 = deadline.remaining_seconds()
         assert r2 < r1
         assert r2 == pytest.approx(5.0, abs=0.1)
+
+
+# --------------------------------------------------------------------------- #
+# Round 1 fixes: current_retry_budget, write-tool no-retry, state key removal
+# --------------------------------------------------------------------------- #
+
+
+class TestCurrentRetryBudget:
+    """current_retry_budget() derives a budget from the request-scoped deadline."""
+
+    def test_returns_none_when_no_deadline_bound(self) -> None:
+        from allcallall_agent_runtime.deadline import current_retry_budget, set_current_deadline
+        set_current_deadline(None)
+        assert current_retry_budget(max_attempts=3) is None
+
+    def test_returns_budget_when_deadline_bound(self) -> None:
+        from allcallall_agent_runtime.deadline import ExecutionDeadline, current_retry_budget, set_current_deadline
+        deadline = ExecutionDeadline(monotonic_deadline=time.monotonic() + 60.0)
+        set_current_deadline(deadline)
+        try:
+            budget = current_retry_budget(max_attempts=3)
+            assert budget is not None
+            assert budget.max_attempts == 3
+            assert budget.deadline is deadline
+        finally:
+            set_current_deadline(None)
+
+    def test_budget_scopes_to_remaining_time(self) -> None:
+        from allcallall_agent_runtime.deadline import ExecutionDeadline, current_retry_budget, set_current_deadline
+
+        class _FakeClock:
+            def __init__(self) -> None:
+                self._now = 100.0
+            def monotonic(self) -> float:
+                return self._now
+
+        clock = _FakeClock()
+        deadline = ExecutionDeadline(monotonic_deadline=100.5, clock=clock.monotonic)
+        set_current_deadline(deadline)
+        try:
+            budget = current_retry_budget(max_attempts=5)
+            assert budget is not None
+            # Only 0.5s remaining; a 1s backoff won't fit
+            assert budget.next_delay(base=1.0, maximum=4.0) is None
+        finally:
+            set_current_deadline(None)
+
+
+class TestWriteToolNoRetry:
+    """execute_write_tool must not retry at the HTTP transport level."""
+
+    def test_write_tool_does_not_retry_on_transient_error(self) -> None:
+        """A transient ToolBridgeError from execute_write_tool propagates immediately."""
+        import httpx
+        from allcallall_agent_runtime.tool_bridge import GoToolBridge, ToolBridgeError
+
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            raise httpx.ConnectError("boom")
+
+        # Configure the bridge so it doesn't short-circuit on "not configured"
+        bridge = GoToolBridge()
+        bridge.base_url = "http://go"
+        bridge.token = "t"
+        bridge._http = httpx.Client(transport=httpx.MockTransport(handler), timeout=5)
+        with pytest.raises(ToolBridgeError) as exc_info:
+            bridge.execute_write_tool(
+                organization_id=1,
+                user_id=2,
+                tool_name="test_write",
+                tool_input={},
+            )
+        # Exactly one call — no retry at the HTTP transport level
+        assert calls["n"] == 1
+        assert exc_info.value.retryable is True
+
+    def test_write_tool_does_not_retry_on_5xx(self) -> None:
+        """A 5xx from execute_write_tool propagates immediately without retry."""
+        import httpx
+        from allcallall_agent_runtime.tool_bridge import GoToolBridge, ToolBridgeError
+
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(500)
+
+        bridge = GoToolBridge()
+        bridge.base_url = "http://go"
+        bridge.token = "t"
+        bridge._http = httpx.Client(transport=httpx.MockTransport(handler), timeout=5)
+        with pytest.raises(ToolBridgeError) as exc_info:
+            bridge.execute_write_tool(
+                organization_id=1,
+                user_id=2,
+                tool_name="test_write",
+                tool_input={},
+            )
+        assert calls["n"] == 1
+        assert exc_info.value.retryable is True
+
+
+class TestStateKeyRemoval:
+    """execution_deadline and cancellation_token are no longer in GraphState."""
+
+    def test_graph_state_has_no_deadline_keys(self) -> None:
+        from allcallall_agent_runtime.state import GraphState
+        annotations = GraphState.__annotations__
+        assert "execution_deadline" not in annotations
+        assert "cancellation_token" not in annotations

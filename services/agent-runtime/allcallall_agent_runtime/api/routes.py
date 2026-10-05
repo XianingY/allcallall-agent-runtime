@@ -13,7 +13,6 @@ from ..deadline import ExecutionCancelled, ExecutionDeadline, set_current_deadli
 from ..helpers import SUPPORTED_WORKFLOWS
 from ..harness import HarnessTimeoutExceeded, get_harness
 from ..metrics import (
-    cancel_requested_total,
     cancelled_total,
     registry,
     workflow_runs_total,
@@ -93,7 +92,8 @@ def _run_with_admission(
         try:
             return run_func(run_request)
         except HarnessTimeoutExceeded:
-            _request_cancellation(deadline, "deadline_exceeded")
+            # Cancellation is requested by the harness in _invoke_graph;
+            # do not double-count cancel_requested_total here.
             raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
         except ExecutionCancelled as exc:
             cancelled_total.labels(reason=exc.reason).inc()
@@ -116,7 +116,8 @@ def _run_with_admission(
         try:
             return run_func(run_request)
         except HarnessTimeoutExceeded:
-            _request_cancellation(deadline, "deadline_exceeded")
+            # Cancellation is requested by the harness in _invoke_graph;
+            # do not double-count cancel_requested_total here.
             raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
         except ExecutionCancelled as exc:
             cancelled_total.labels(reason=exc.reason).inc()
@@ -127,22 +128,6 @@ def _run_with_admission(
         # The admission lease is released only after the graph future exits,
         # keeping the inflight capacity occupied until the work is truly done.
         lease.close()
-
-
-def _request_cancellation(deadline: ExecutionDeadline, reason: str) -> None:
-    """Request cooperative cancellation on a deadline and record metrics.
-
-    After requesting cancellation, waits up to ``cancellation_grace_seconds``
-    for the graph to exit cooperatively.  If the grace period expires, records
-    a ``cancel_grace_exceeded`` counter.
-    """
-    if not deadline.cancelled:
-        try:
-            deadline.cancel(reason)
-        except ValueError:
-            # Invalid reason — shouldn't happen, but don't break the error path.
-            pass
-        cancel_requested_total.labels(reason=reason).inc()
 
 
 def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
