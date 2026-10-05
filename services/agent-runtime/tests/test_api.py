@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from allcallall_agent_runtime.admission import AdmissionController
 from allcallall_agent_runtime.api.app import create_app
 from allcallall_agent_runtime.harness import AllCallAllAgentHarness, get_harness
 from allcallall_agent_runtime.main import app
@@ -70,3 +71,21 @@ def test_app_factory_preserves_routes_and_open_health_endpoint() -> None:
         "status": "ok",
         "runtime": "python_langgraph",
     }
+
+
+def test_app_lifespan_creates_admission_controller() -> None:
+    """The lifespan context manager creates an admission controller on app.state."""
+    created_app = create_app()
+    with TestClient(created_app):
+        assert hasattr(created_app.state, "admission")
+        assert isinstance(created_app.state.admission, AdmissionController)
+        assert created_app.state.admission.max_active > 0
+
+
+def test_app_lifespan_creates_invoke_executor() -> None:
+    """The lifespan context manager creates an invoke executor on app.state."""
+    import concurrent.futures
+    created_app = create_app()
+    with TestClient(created_app):
+        assert hasattr(created_app.state, "invoke_executor")
+        assert isinstance(created_app.state.invoke_executor, concurrent.futures.ThreadPoolExecutor)

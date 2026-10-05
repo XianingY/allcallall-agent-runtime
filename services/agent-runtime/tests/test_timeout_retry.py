@@ -187,3 +187,50 @@ def _minimal_request() -> Any:
         goal="test",
         preset="meeting_brief",
     )
+
+
+# --------------------------------------------------------------------------- #
+# Invoke executor lifecycle                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_shutdown_invoke_executor() -> None:
+    """shutdown_invoke_executor shuts down the lazy executor."""
+    from allcallall_agent_runtime.orchestration.harness import (
+        _get_invoke_executor,
+        shutdown_invoke_executor,
+    )
+
+    # Force creation of the executor
+    executor = _get_invoke_executor()
+    assert executor is not None
+
+    # Shut it down
+    shutdown_invoke_executor(wait=False)
+
+    # After shutdown, a new executor is created on next access
+    new_executor = _get_invoke_executor()
+    assert new_executor is not None
+    assert new_executor is not executor
+
+    # Clean up
+    shutdown_invoke_executor(wait=False)
+
+
+def test_invoke_executor_sized_from_config() -> None:
+    """The invoke executor is sized from effective_max_active_runs."""
+    from allcallall_agent_runtime.orchestration.harness import (
+        _get_invoke_executor,
+        shutdown_invoke_executor,
+    )
+    from allcallall_agent_runtime.config import effective_max_active_runs, config
+
+    # Clean up any existing executor
+    shutdown_invoke_executor(wait=False)
+
+    expected = effective_max_active_runs(config)
+    executor = _get_invoke_executor()
+    assert executor._max_workers == expected
+
+    # Clean up
+    shutdown_invoke_executor(wait=False)

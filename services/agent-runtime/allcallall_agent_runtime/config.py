@@ -105,7 +105,32 @@ class AgentRuntimeConfig(BaseSettings):
     # is the original static chain, so behavior is unchanged.
     enable_role_router: bool = False
 
+
+    # Bounded admission control: limits on concurrent and queued workflow runs
+    # to prevent unbounded queue growth and coordinate with downstream capacity.
+    max_active_runs: int = 4
+    max_queued_runs: int = 16
+    max_queue_wait_seconds: float = 5.0
+    cancellation_grace_seconds: float = 2.0
+
     model_config = {"env_prefix": "PY_AGENT_"}
+
+
+def effective_max_active_runs(cfg: AgentRuntimeConfig) -> int:
+    """Compute the effective max active runs, bounded by checkpoint pool capacity.
+
+    When MySQL checkpoints are enabled, the checkpoint connection pool limits
+    concurrent graph invocations. If the configured ``max_active_runs`` exceeds
+    the pool size, we clamp to the pool size to avoid uncoordinated executor
+    queues that would starve for connections. For non-MySQL stores there is no
+    pool constraint, so the configured value is returned as-is.
+    """
+    configured = cfg.max_active_runs
+    if cfg.checkpoint_mysql_enabled and cfg.checkpoint_mysql_pool_size > 0:
+        pool_limit = cfg.checkpoint_mysql_pool_size
+        if configured > pool_limit:
+            return pool_limit
+    return configured
 
 
 config = AgentRuntimeConfig()

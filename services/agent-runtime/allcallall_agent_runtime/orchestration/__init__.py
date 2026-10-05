@@ -5,6 +5,7 @@ from .harness import (
     HarnessTimeoutExceeded,
     get_harness,
     get_workflow_graph,
+    shutdown_invoke_executor,
 )
 
 __all__ = [
@@ -12,5 +13,5 @@ __all__ = [
     "HarnessTimeoutExceeded",
     "get_harness",
     "get_workflow_graph",
+    "shutdown_invoke_executor",
 ]
-

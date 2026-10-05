@@ -67,9 +67,33 @@ class HarnessTimeoutExceeded(TimeoutError):
 
 # Bounded pool for running blocking LangGraph invocations off the (sync) request
 # worker thread so a per-request timeout can be enforced via future.result().
-_invoke_executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=16, thread_name_prefix="agent-harness-invoke"
-)
+# Sized from the effective admission limit so the pool does not exceed
+# downstream capacity (checkpoint pool, provider rate limits, etc.).
+_invoke_executor: concurrent.futures.ThreadPoolExecutor | None = None
+_invoke_executor_lock = Lock()
+
+
+def _get_invoke_executor() -> concurrent.futures.ThreadPoolExecutor:
+    """Return (and lazily create) the invoke executor sized from config."""
+    global _invoke_executor
+    if _invoke_executor is None:
+        with _invoke_executor_lock:
+            if _invoke_executor is None:
+                from ..config import effective_max_active_runs
+                workers = effective_max_active_runs(app_config)
+                _invoke_executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=workers, thread_name_prefix="agent-harness-invoke"
+                )
+    return _invoke_executor
+
+
+def shutdown_invoke_executor(wait: bool = False) -> None:
+    """Shut down the invoke executor (called during application lifespan teardown)."""
+    global _invoke_executor
+    with _invoke_executor_lock:
+        if _invoke_executor is not None:
+            _invoke_executor.shutdown(wait=wait)
+            _invoke_executor = None
 
 
 _graph: Any | None = None
@@ -174,7 +198,7 @@ class AllCallAllAgentHarness:
         graph = self._get_graph()
         timeout = float(app_config.request_timeout_seconds)
         if timeout and timeout > 0:
-            future = _invoke_executor.submit(graph.invoke, state, config=run_config)
+            future = _get_invoke_executor().submit(graph.invoke, state, config=run_config)
             try:
                 result: dict[str, Any] = future.result(timeout=timeout)
             except concurrent.futures.TimeoutError as exc:

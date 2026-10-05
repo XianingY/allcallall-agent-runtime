@@ -6,6 +6,7 @@ from .orchestration.harness import (
     HarnessTimeoutExceeded,
     get_harness,
     get_workflow_graph,
+    shutdown_invoke_executor,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "app_config",
     "get_harness",
     "get_workflow_graph",
+    "shutdown_invoke_executor",
 ]

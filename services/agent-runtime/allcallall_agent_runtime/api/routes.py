@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from typing import Callable, TypeVar
 
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+
+from ..admission import AdmissionController, AdmissionRejected
 from ..api_auth import require_auth
 from ..async_tool_queue import get_default_tool_queue
 from ..config import config as runtime_config
 from ..helpers import SUPPORTED_WORKFLOWS
 from ..harness import HarnessTimeoutExceeded, get_harness
-from ..metrics import registry
+from ..metrics import registry, workflow_runs_total
 from ..models import (
     AgentRunRequest,
     AgentRunResponse,
@@ -19,12 +22,63 @@ from ..models import (
 from ..skill_registry import build_production_registry
 
 
+_R = TypeVar("_R")
+
 router = APIRouter()
+
+
+def _get_admission(request: Request) -> AdmissionController | None:
+    """Retrieve the admission controller from application state.
+
+    Returns ``None`` when the lifespan has not been initialized (e.g. in
+    lightweight tests that construct the app without entering the lifespan
+    context manager), in which case admission control is bypassed.
+    """
+    return getattr(request.app.state, "admission", None)
+
+
+def _run_with_admission(
+    request: Request,
+    run_func: Callable[..., _R],
+    run_request: object,
+) -> _R:
+    """Run a workflow through admission control.
+
+    Acquires an admission lease, runs the workflow, and releases the lease
+    in ``finally``.  Maps admission rejection and timeout to HTTP errors.
+
+    When the admission controller is not available (e.g. in tests that bypass
+    the lifespan), the workflow runs without admission control.
+    """
+    admission = _get_admission(request)
+    if admission is None:
+        workflow_runs_total.inc()
+        try:
+            return run_func(run_request)
+        except HarnessTimeoutExceeded:
+            raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+
+    org_id = getattr(run_request, "organization_id", 0)
+    try:
+        lease = admission.acquire(organization_id=org_id)
+    except AdmissionRejected as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "runtime_overloaded", "reason": exc.reason},
+            headers={"Retry-After": str(int(exc.retry_after_seconds))},
+        ) from None
+    try:
+        workflow_runs_total.inc()
+        return run_func(run_request)
+    except HarnessTimeoutExceeded:
+        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+    finally:
+        lease.close()
 
 
 def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
     """Run the meeting brief workflow."""
-    registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
+    workflow_runs_total.inc()
     try:
         return get_harness().run_meeting_brief(request)
     except HarnessTimeoutExceeded:
@@ -33,7 +87,7 @@ def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
 
 def run_react_agent(request: AgentRunRequest) -> AgentRunResponse:
     """Run the react agent workflow."""
-    registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
+    workflow_runs_total.inc()
     try:
         return get_harness().run_react_agent(request)
     except HarnessTimeoutExceeded:
@@ -42,11 +96,12 @@ def run_react_agent(request: AgentRunRequest) -> AgentRunResponse:
 
 def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
     """Run a workflow with the given request."""
-    registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
+    workflow_runs_total.inc()
     try:
         return get_harness().run_workflow(request)
     except HarnessTimeoutExceeded:
         raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+
 
 @router.get("/health")
 def health() -> dict[str, str]:
@@ -106,18 +161,18 @@ def capabilities() -> dict[str, object]:
 
 
 @router.post("/v1/agents/react/run", response_model=AgentRunResponse, dependencies=[Depends(require_auth)])
-def react_run(request: AgentRunRequest) -> AgentRunResponse:
-    return run_react_agent(request)
+def react_run(request: AgentRunRequest, fastapi_request: Request) -> AgentRunResponse:
+    return _run_with_admission(fastapi_request, run_react_agent, request)
 
 
 @router.post("/v1/workflows/meeting-brief/run", dependencies=[Depends(require_auth)])
-def meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
-    return run_meeting_brief(request)
+def meeting_brief(request: MeetingBriefRequest, fastapi_request: Request) -> MeetingBriefResponse:
+    return _run_with_admission(fastapi_request, run_meeting_brief, request)
 
 
 @router.post("/v1/workflows/{preset}/run", response_model=WorkflowResponse, dependencies=[Depends(require_auth)])
-def workflow_run(preset: str, request: WorkflowRequest) -> WorkflowResponse:
-    return run_workflow(request.model_copy(update={"preset": preset}))
+def workflow_run(preset: str, request: WorkflowRequest, fastapi_request: Request) -> WorkflowResponse:
+    return _run_with_admission(fastapi_request, run_workflow, request.model_copy(update={"preset": preset}))
 
 
 @router.get("/v1/tool-queue/status", dependencies=[Depends(require_auth)])
@@ -149,11 +204,11 @@ def list_skills() -> dict[str, object]:
     plan and marked approval-required. Returns an empty list when skills are
     disabled or no manifest is configured.
     """
-    registry = build_production_registry(runtime_config.skill_manifest_path or None)
+    reg = build_production_registry(runtime_config.skill_manifest_path or None)
     skills: list[dict[str, object]] = []
-    for skill in registry.all():
+    for skill in reg.all():
         try:
-            resolved = registry.resolve(skill.name)
+            resolved = reg.resolve(skill.name)
         except KeyError:
             continue
         skills.append(
