@@ -57,12 +57,37 @@ class RiskAssessment(BaseModel):
     guardrails: list[str] = Field(default_factory=list)
 
 
+class ApprovalDecision(BaseModel):
+    tool_call_id: str
+    decision: Literal["approve", "reject"]
+
+
+class PendingApprovalTool(BaseModel):
+    tool_call_id: str
+    tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    arguments_sha256: str
+    reason: str = ""
+    mcp_installation_id: int = 0
+    mcp_revision_id: int = 0
+    mcp_tool_id: int = 0
+
+
+class PendingApproval(BaseModel):
+    type: Literal["tool_approval"] = "tool_approval"
+    approval_request_id: str
+    tools: list[PendingApprovalTool] = Field(default_factory=list)
+
+
 class MeetingBriefResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["ready", "requires_action", "failed"] = "requires_action"
     runtime: str = "python_langgraph"
     provider: str = "rules"
+    execution_id: str = ""
+    checkpoint_id: str = ""
+    checkpoint_version: int = 0
     summary: str = ""
     action_items: list[str] = Field(default_factory=list)
     next_step: str = ""
@@ -71,6 +96,8 @@ class MeetingBriefResponse(BaseModel):
     role_results: list[RoleResult] = Field(default_factory=list)
     trace_events: list[TraceEvent] = Field(default_factory=list)
     proposed_tool_calls: list[ToolProposal] = Field(default_factory=list)
+    pending_approval: PendingApproval | None = None
+    approval_decisions: list[ApprovalDecision] = Field(default_factory=list)
     prompt_version: str = ""
     grounding_check_result: dict[str, Any] = Field(default_factory=dict)
     retrieval_plan: RetrievalPlan = Field(default_factory=RetrievalPlan)
@@ -98,6 +125,28 @@ AgentRunRequest = MeetingBriefRequest
 AgentRunResponse = MeetingBriefResponse
 
 
+class WorkflowResume(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approval_request_id: str
+    decisions: list[ApprovalDecision] = Field(default_factory=list)
+
+
+class WorkflowResumeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = ""
+    execution_id: str
+    expected_checkpoint_version: int
+    tool_capability: str = ""
+    organization_id: int
+    user_id: int
+    conversation_id: int
+    agent_run_id: int | None = None
+    workflow_run_id: int = 0
+    resume: WorkflowResume
+
+
 class WorkflowEvalCase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -110,6 +159,8 @@ class WorkflowEvalCase(BaseModel):
     required_citation_source_types: list[str] = Field(default_factory=list)
     required_tool_proposals: list[str] = Field(default_factory=list)
     forbidden_tool_proposals: list[str] = Field(default_factory=list)
+    expected_selected_roles: list[str] = Field(default_factory=list)
+    forbidden_selected_roles: list[str] = Field(default_factory=list)
     expected_route: str = ""
     requires_unsupported_claim_guard: bool = False
 
@@ -128,6 +179,7 @@ class WorkflowEvalCaseResult(BaseModel):
     unsupported_claim_guarded: bool
     prompt_schema_valid: bool = True
     route_matched: bool = True
+    role_routing_matched: bool = True
     loop_completed: bool = True
     stop_reason_valid: bool = True
     memory_reflection_precise: bool = True
@@ -151,6 +203,7 @@ class WorkflowEvalSummary(BaseModel):
     unsupported_claim_guard_rate: float = 0
     prompt_schema_valid_rate: float = 0
     route_accuracy: float = 0
+    role_routing_match_rate: float = 0
     loop_completion_rate: float = 0
     stop_reason_valid_rate: float = 0
     memory_reflection_precision: float = 0
@@ -282,4 +335,3 @@ class EvalRun(BaseModel):
     target_badcase_categories: list[BadcaseCategory] = Field(default_factory=list)
     improved: bool = False
     created_at: str
-

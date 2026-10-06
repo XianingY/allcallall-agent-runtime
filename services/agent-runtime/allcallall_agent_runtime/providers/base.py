@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+import httpx
+
 import allcallall_agent_runtime.config as _cfg
+from allcallall_agent_runtime.config import AgentRuntimeConfig
 from allcallall_agent_runtime.models import WorkflowRequest
 
 
@@ -36,10 +39,15 @@ class RulesProvider:
         return None
 
 
-def create_provider() -> LLMProvider:
-    provider = _cfg.config.provider.lower() or "rules"
+def create_provider(
+    *,
+    config: AgentRuntimeConfig | None = None,
+    http_client: httpx.Client | None = None,
+) -> LLMProvider:
+    settings = config or _cfg.config
+    provider = settings.provider.lower() or "rules"
     if provider == "openai_compatible":
         from .openai_compatible import OpenAICompatibleProvider
 
-        return OpenAICompatibleProvider()
+        return OpenAICompatibleProvider(config=settings, http_client=http_client)
     return RulesProvider()

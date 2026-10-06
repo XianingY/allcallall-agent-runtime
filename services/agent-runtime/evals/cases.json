@@ -208,6 +208,78 @@
     "forbidden_tool_proposals": ["write_conversation_message", "create_follow_up_task", "upsert_agent_memory"]
   },
   {
+    "name": "context_qa_skips_memory_and_risk",
+    "preset": "context_qa",
+    "goal": "本次版本发布需要准备哪些安全材料？",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1009,
+      "preset": "context_qa",
+      "goal": "本次版本发布需要准备哪些安全材料？",
+      "context_chunks": [
+        {
+          "chunk_id": "kb-routing",
+          "source_type": "knowledge",
+          "source_id": "502",
+          "source_title": "Release Safety Checklist",
+          "title": "Release Safety Checklist",
+          "snippet": "发布前需要准备安全测试报告、数据分级说明和回滚方案。",
+          "score": 9,
+          "retrieval_mode": "rules"
+        }
+      ],
+      "max_iterations": { "searcher": 2, "risk_analyst": 1 }
+    },
+    "expected_status": "ready",
+    "expected_route": "CONSULT",
+    "required_output_substrings": ["Context QA"],
+    "required_citation_source_types": ["knowledge"],
+    "required_tool_proposals": [],
+    "forbidden_tool_proposals": ["write_conversation_message", "create_follow_up_task", "upsert_agent_memory"],
+    "expected_selected_roles": ["searcher", "synthesize"],
+    "forbidden_selected_roles": ["memory_agent", "risk_analyst"]
+  },
+  {
+    "name": "context_qa_write_policy_requires_risk",
+    "preset": "context_qa",
+    "goal": "如果需要写回结论，请先评估审批和安全风险。",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1010,
+      "preset": "context_qa",
+      "goal": "如果需要写回结论，请先评估审批和安全风险。",
+      "tool_policy": {
+        "read_tools": ["query_context_chunks"],
+        "write_tools": ["write_conversation_message"]
+      },
+      "context_chunks": [
+        {
+          "chunk_id": "kb-write-risk",
+          "source_type": "knowledge",
+          "source_id": "503",
+          "source_title": "Write Policy",
+          "title": "Write Policy",
+          "snippet": "任何写回会话的操作都必须保留审批记录并检查敏感信息。",
+          "score": 9,
+          "retrieval_mode": "rules"
+        }
+      ],
+      "max_iterations": { "searcher": 2, "risk_analyst": 2 }
+    },
+    "expected_status": "ready",
+    "expected_route": "CONSULT",
+    "required_output_substrings": ["Context QA"],
+    "required_citation_source_types": ["knowledge"],
+    "required_tool_proposals": [],
+    "forbidden_tool_proposals": ["create_follow_up_task"],
+    "expected_selected_roles": ["searcher", "synthesize", "risk_analyst"],
+    "forbidden_selected_roles": ["memory_agent"]
+  },
+  {
     "name": "context_qa_missing_context_guard",
     "preset": "context_qa",
     "goal": "客户上次会议承诺的最终价格是多少？",

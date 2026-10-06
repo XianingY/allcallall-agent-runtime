@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -187,3 +188,178 @@ def _minimal_request() -> Any:
         goal="test",
         preset="meeting_brief",
     )
+
+
+
+# --------------------------------------------------------------------------- #
+# Invoke executor lifecycle (single-owner injection pattern)                  #
+# --------------------------------------------------------------------------- #
+
+
+def test_set_invoke_executor_injects_executor() -> None:
+    """set_invoke_executor injects an executor that _get_invoke_executor returns."""
+    import concurrent.futures
+    from allcallall_agent_runtime.orchestration.harness import (
+        _get_invoke_executor,
+        set_invoke_executor,
+        shutdown_invoke_executor,
+    )
+
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="test-inject")
+        set_invoke_executor(executor)
+        assert _get_invoke_executor() is executor
+    finally:
+        shutdown_invoke_executor(wait=False)
+
+
+def test_shutdown_invoke_executor_closes_injected() -> None:
+    """shutdown_invoke_executor shuts down the injected executor."""
+    import concurrent.futures
+    from allcallall_agent_runtime.orchestration.harness import (
+        _get_invoke_executor,
+        set_invoke_executor,
+        shutdown_invoke_executor,
+    )
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="test-shutdown")
+    set_invoke_executor(executor)
+    shutdown_invoke_executor(wait=False)
+
+    # After shutdown, _get_invoke_executor lazily creates a new one
+    new_executor = _get_invoke_executor()
+    assert new_executor is not executor
+    shutdown_invoke_executor(wait=False)
+
+
+def test_invoke_executor_sized_from_config() -> None:
+    """The invoke executor is sized from effective_max_active_runs."""
+    from allcallall_agent_runtime.orchestration.harness import (
+        _get_invoke_executor,
+        shutdown_invoke_executor,
+    )
+    from allcallall_agent_runtime.config import effective_max_active_runs, config
+
+    # Clean up any existing executor
+    shutdown_invoke_executor(wait=False)
+
+    expected = effective_max_active_runs(config)
+    executor = _get_invoke_executor()
+    assert executor._max_workers == expected
+
+    # Clean up
+    shutdown_invoke_executor(wait=False)
+
+
+# --------------------------------------------------------------------------- #
+# Task 10: ExecutionDeadline integration with harness and retry budget
+# --------------------------------------------------------------------------- #
+
+
+def test_execution_deadline_from_header_valid() -> None:
+    """A valid RFC3339 deadline header produces a non-expired deadline."""
+    import time as _time
+    from allcallall_agent_runtime.deadline import ExecutionDeadline
+
+    future = _time.strftime("%Y-%m-%dT%H:%M:%S+00:00", _time.gmtime(_time.time() + 60))
+    dl = ExecutionDeadline.from_header(future, default_seconds=120.0)
+    assert not dl.expired()
+    assert dl.remaining_seconds() > 50.0
+
+
+def test_execution_deadline_from_header_none_uses_default() -> None:
+    """When the header is absent, the local default is used."""
+    from allcallall_agent_runtime.deadline import ExecutionDeadline
+
+    dl = ExecutionDeadline.from_header(None, default_seconds=30.0)
+    assert not dl.expired()
+    assert dl.remaining_seconds() <= 35.0
+
+
+def test_execution_deadline_cancel_and_raise() -> None:
+    """cancel() + raise_if_cancelled() raises ExecutionCancelled."""
+    from allcallall_agent_runtime.deadline import ExecutionCancelled, ExecutionDeadline
+
+    dl = ExecutionDeadline.from_header(None, default_seconds=60.0)
+    dl.cancel("shutdown")
+    with pytest.raises(ExecutionCancelled) as exc_info:
+        dl.raise_if_cancelled()
+    assert exc_info.value.reason == "shutdown"
+
+
+def test_retry_budget_stops_when_backoff_exceeds_remaining() -> None:
+    """RetryBudget returns None when the backoff delay would exceed the remaining deadline."""
+    from allcallall_agent_runtime.deadline import ExecutionDeadline, RetryBudget
+
+    class _FakeClock:
+        def __init__(self, now: float = 100.0) -> None:
+            self._now = now
+        def monotonic(self) -> float:
+            return self._now
+        def advance(self, seconds: float) -> None:
+            self._now += seconds
+
+    clock = _FakeClock(now=100.0)
+    deadline = ExecutionDeadline(monotonic_deadline=100.4, clock=clock.monotonic)
+    budget = RetryBudget(max_attempts=3, deadline=deadline, jitter=lambda _: 0.0)
+
+    assert budget.next_delay(base=0.1, maximum=1.0) == 0.1
+    clock.advance(0.35)
+    assert budget.next_delay(base=0.1, maximum=1.0) is None
+
+
+def test_with_retry_respects_budget() -> None:
+    """with_retry stops retrying when the retry budget says no more attempts."""
+    from allcallall_agent_runtime.deadline import ExecutionDeadline, RetryBudget
+
+    calls = {"n": 0}
+
+    def flaky() -> int:
+        calls["n"] += 1
+        raise ConnectionError("transient")
+
+    deadline = ExecutionDeadline(monotonic_deadline=time.monotonic() + 0.5)
+    budget = RetryBudget(max_attempts=2, deadline=deadline, jitter=lambda _: 0.0)
+
+    with pytest.raises(ConnectionError):
+        with_retry(
+            flaky,
+            should_retry=lambda e: isinstance(e, ConnectionError),
+            max_attempts=5,  # would allow 5, but budget limits to 2
+            base_delay_sec=0.01,
+            max_delay_sec=0.01,
+            budget=budget,
+        )
+    # Budget allowed 2 attempts (next_delay consumed 2), but the first call
+    # doesn't consume a budget slot — it's the retries that consume budget.
+    # So we expect 3 calls: 1 initial + 2 retries (budget slots).
+    assert calls["n"] == 3
+
+
+def test_with_retry_no_budget_preserves_legacy() -> None:
+    """with_retry without a budget preserves the legacy max_attempts behavior."""
+    calls = {"n": 0}
+
+    def flaky() -> int:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise ConnectionError("transient")
+        return 42
+
+    result = with_retry(
+        flaky,
+        should_retry=lambda e: isinstance(e, ConnectionError),
+        max_attempts=3,
+        base_delay_sec=0,
+        max_delay_sec=0,
+    )
+    assert result == 42
+    assert calls["n"] == 3
+
+
+def test_harness_cancellation_grace_config() -> None:
+    """cancellation_grace_seconds is wired and has a reasonable default."""
+    from allcallall_agent_runtime.config import config
+
+    assert hasattr(config, "cancellation_grace_seconds")
+    assert config.cancellation_grace_seconds == 2.0

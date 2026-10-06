@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import threading
 from typing import Any, TypedDict
 
 from .models import (
@@ -20,6 +21,7 @@ from .models import (
     RiskAssessment,
     RoleResult,
     ToolProposal,
+    ApprovalDecision,
     TraceEvent,
     WorkflowRequest,
 )
@@ -37,16 +39,24 @@ class RoleAllocation:
     roles: list[str] = field(default_factory=list)
     parallel_groups: list[list[str]] = field(default_factory=list)
     skip_roles: set[str] = field(default_factory=set)
+    required_roles: set[str] = field(default_factory=set)
     rationale: str = ""
     complexity: str = "simple"  # simple | moderate | complex
 
 
 class GraphState(TypedDict, total=False):
-    """State type for the LangGraph workflow."""
+    """State type for the LangGraph workflow.
+
+    Request-scoped deadline and cancellation state is propagated via the
+    module-level context variable (:func:`deadline.get_current_deadline`)
+    rather than graph state keys, so it is naturally excluded from checkpoint
+    serialization and a resumed run starts with a fresh deadline.
+    """
 
     request: WorkflowRequest
     provider: Any  # LLMProvider
     tool_bridge: Any  # GoToolBridge
+    rag_runtime: Any  # RAGRuntimeClient
     trace_events: list[TraceEvent]
     role_results: list[RoleResult]
     agentic_rag_enabled: bool
@@ -71,6 +81,7 @@ class GraphState(TypedDict, total=False):
     risk_flags: list[str]
     citations: list[Citation]
     proposed_tool_calls: list[ToolProposal]
+    approval_decisions: list[ApprovalDecision]
     prompt_version: str
     grounding_check_result: dict[str, Any]
     critic_result: CriticResult
@@ -86,3 +97,9 @@ class GraphState(TypedDict, total=False):
     skill_instructions: str
     # --- Module 4: retrieved durable long-term memory (opt-in) --- #
     long_term_memory: list[str]
+    # --- Task 12: per-run retrieval cache (not serialized) --- #
+    retrieval_cache: Any  # RunRetrievalCache
+    # --- Task 13: branch-local cooperative cancellation (not merged) --- #
+    branch_cancel_event: threading.Event
+    unresolved_approval: bool
+    safety_blocked: bool

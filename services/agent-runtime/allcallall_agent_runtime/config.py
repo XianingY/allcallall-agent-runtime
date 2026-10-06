@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Literal, Self
+
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -45,6 +48,36 @@ class AgentRuntimeConfig(BaseSettings):
     retry_base_delay_sec: float = 0.5
     retry_max_delay_sec: float = 8.0
 
+    # Outbound HTTP connection pool (process-lifetime client bundle)
+    http_max_connections: int = 20
+    http_max_keepalive_connections: int = 10
+    http_keepalive_expiry_sec: float = 30.0
+    http_connect_timeout_sec: float = 5.0
+    http_read_timeout_sec: float = 30.0
+    http_write_timeout_sec: float = 10.0
+    http_pool_timeout_sec: float = 10.0
+
+    # Grace period for the background tool-queue worker during shutdown. It is
+    # deliberately short so application shutdown cannot block indefinitely.
+    tool_queue_worker_join_timeout_sec: float = 1.5
+
+    @model_validator(mode="after")
+    def _validate_http_pool(self) -> Self:
+        http_fields = (
+            self.http_max_connections,
+            self.http_max_keepalive_connections,
+            self.http_keepalive_expiry_sec,
+            self.http_connect_timeout_sec,
+            self.http_read_timeout_sec,
+            self.http_write_timeout_sec,
+            self.http_pool_timeout_sec,
+        )
+        if any(value <= 0 for value in http_fields):
+            raise ValueError("all outbound HTTP pool and timeout settings must be positive")
+        if self.http_max_keepalive_connections > self.http_max_connections:
+            raise ValueError("http_max_keepalive_connections cannot exceed http_max_connections")
+        return self
+
     # Durable checkpoints (backend selection; decoupled from the harness)
     checkpoint_store: str = ""  # "" (auto) | "none" | "mysql" | "sqlite" | "memory"
     checkpoint_mysql_enabled: bool = False
@@ -83,7 +116,21 @@ class AgentRuntimeConfig(BaseSettings):
     # the workflow run and execute them in the background via the Go tool bridge.
     # Off by default — when disabled, write proposals are returned to the caller
     # (legacy behavior) and nothing is enqueued.
+    # The queue is process-local and therefore only valid for single-process
+    # development/test deployments; multi-replica production leaves durable write
+    # execution to the Go outbox.
+    deployment_mode: Literal["single_process", "multi_replica"] = "multi_replica"
     enable_tool_queue: bool = False
+
+    @model_validator(mode="after")
+    def _validate_tool_queue_deployment(self) -> Self:
+        if self.enable_tool_queue and self.deployment_mode == "multi_replica":
+            raise ValueError(
+                "PY_AGENT_ENABLE_TOOL_QUEUE=true requires "
+                "PY_AGENT_DEPLOYMENT_MODE=single_process; multi-replica runtimes "
+                "must leave durable write execution in Go"
+            )
+        return self
 
     # Skill registry hardening (Module 5): load skills from an explicit manifest
     # (listing allowed files + expected risk_level) instead of trusting
@@ -96,6 +143,8 @@ class AgentRuntimeConfig(BaseSettings):
     # of always running max_iterations. Off by default — when disabled the loop
     # behaves exactly as before (only the searcher citation early-exit remains).
     enable_early_termination: bool = False
+    early_termination_evidence_threshold: float = 0.8
+    early_termination_citation_threshold: float = 0.8
     early_termination_goal_threshold: float = 0.7
     early_termination_plateau_window: int = 2
 
@@ -105,7 +154,57 @@ class AgentRuntimeConfig(BaseSettings):
     # is the original static chain, so behavior is unchanged.
     enable_role_router: bool = False
 
+    # Bounded independent-role execution. Only the read-only searcher and
+    # memory_agent pair is eligible. The flag is intentionally independent of
+    # role routing: an allocation that lists a parallel group is not sufficient
+    # to enable concurrent execution.
+    enable_parallel_roles: bool = False
+    parallel_role_token_budget: int = 8_000
+
+
+    # Bounded admission control: limits on concurrent and queued workflow runs
+    # to prevent unbounded queue growth and coordinate with downstream capacity.
+    max_active_runs: int = 4
+    max_queued_runs: int = 16
+    max_queue_wait_seconds: float = 5.0
+    # The Helm chart shares Go's PY_AGENT_RUNTIME_CANCELLATION_GRACE_SEC name;
+    # keep the older Python-specific spelling for local development.
+    cancellation_grace_seconds: float = Field(
+        default=2.0,
+        validation_alias=AliasChoices(
+            "PY_AGENT_RUNTIME_CANCELLATION_GRACE_SEC",
+            "PY_AGENT_CANCELLATION_GRACE_SECONDS",
+        ),
+    )  # Grace period for cooperative cancellation after timeout
+
     model_config = {"env_prefix": "PY_AGENT_"}
 
 
+def effective_max_active_runs(cfg: AgentRuntimeConfig) -> int:
+    """Compute the effective max active runs, bounded by checkpoint pool capacity.
+
+    When MySQL checkpoints are enabled, the checkpoint connection pool limits
+    concurrent graph invocations. If the configured ``max_active_runs`` exceeds
+    the pool size, we clamp to the pool size to avoid uncoordinated executor
+    queues that would starve for connections. For non-MySQL stores there is no
+    pool constraint, so the configured value is returned as-is.
+    """
+    configured = cfg.max_active_runs
+    if cfg.checkpoint_mysql_enabled and cfg.checkpoint_mysql_pool_size > 0:
+        pool_limit = cfg.checkpoint_mysql_pool_size
+        if configured > pool_limit:
+            return pool_limit
+    return configured
+
+
 config = AgentRuntimeConfig()
+
+
+def validate_runtime_config(config: AgentRuntimeConfig) -> None:
+    """Reject unsafe process-local tool-queue deployment combinations."""
+    if config.enable_tool_queue and config.deployment_mode == "multi_replica":
+        raise ValueError(
+            "PY_AGENT_ENABLE_TOOL_QUEUE=true requires "
+            "PY_AGENT_DEPLOYMENT_MODE=single_process; multi-replica runtimes "
+            "must leave durable write execution in Go"
+        )

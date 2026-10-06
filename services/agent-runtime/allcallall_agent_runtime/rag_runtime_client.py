@@ -6,8 +6,15 @@ from typing import Any
 import httpx
 
 import allcallall_agent_runtime.config as _cfg
+from allcallall_agent_runtime.config import AgentRuntimeConfig
+from allcallall_agent_runtime.http_requests import (
+    build_http_client,
+    post_json_without_cookies,
+    service_request_timeout,
+)
 from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import ContextChunk, RetrievalPlan, RetrievalPlanStep, WorkflowRequest
+from allcallall_agent_runtime.deadline import current_retry_budget
 from allcallall_agent_runtime.retry import with_retry
 
 
@@ -26,16 +33,23 @@ class RAGRuntimeObservation:
 
 
 class RAGRuntimeClient:
-    def __init__(self) -> None:
-        self.base_url = _cfg.config.rag_runtime_base_url.strip().rstrip("/")
-        self.timeout_sec = max(1, int(_cfg.config.rag_runtime_timeout_sec))
-        self.max_retries = max(0, int(_cfg.config.rag_runtime_max_retries))
-        self._http: httpx.Client | None = None
+    def __init__(
+        self,
+        *,
+        config: AgentRuntimeConfig | None = None,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        settings = config or _cfg.config
+        self._settings = settings
+        self.base_url = settings.rag_runtime_base_url.strip().rstrip("/")
+        self.timeout_sec = max(1, int(settings.rag_runtime_timeout_sec))
+        self.max_retries = max(0, int(settings.rag_runtime_max_retries))
+        self._http = http_client
 
     @property
     def _client(self) -> httpx.Client:
         if self._http is None:
-            self._http = httpx.Client(timeout=self.timeout_sec)
+            self._http = build_http_client(self._settings)
         return self._http
 
     def configured(self) -> bool:
@@ -64,7 +78,13 @@ class RAGRuntimeClient:
 
         def _call() -> httpx.Response:
             try:
-                response = self._client.post(f"{self.base_url}/v1/retrieval/agentic", json=payload)
+                response = post_json_without_cookies(
+                    self._client,
+                    f"{self.base_url}/v1/retrieval/agentic",
+                    payload=payload,
+                    headers={},
+                    timeout=service_request_timeout(self._settings, self.timeout_sec),
+                )
             except httpx.HTTPError as exc:
                 raise RAGRuntimeError(f"rag runtime unavailable: {exc}", retryable=True) from exc
             if response.status_code == 429 or response.status_code >= 500:
@@ -77,12 +97,16 @@ class RAGRuntimeClient:
 
         # Only transient faults (network error, HTTP 429/5xx) are retried; a 4xx
         # from the RAG runtime is a permanent request error.
+        # When a request-scoped deadline is bound, retries consume the shared
+        # budget so RAG and workflow retries are bounded by the remaining deadline.
+        budget = current_retry_budget(max_attempts=self.max_retries + 1)
         response = with_retry(
             _call,
             should_retry=lambda exc: isinstance(exc, RAGRuntimeError) and exc.retryable,
             max_attempts=self.max_retries + 1,
-            base_delay_sec=_cfg.config.retry_base_delay_sec,
-            max_delay_sec=_cfg.config.retry_max_delay_sec,
+            base_delay_sec=self._settings.retry_base_delay_sec,
+            max_delay_sec=self._settings.retry_max_delay_sec,
+            budget=budget,
             on_retry=lambda exc, attempt: registry.counter(
                 "agent_runtime_rag_retries_total",
                 "Retries performed by the RAG runtime client on transient faults",

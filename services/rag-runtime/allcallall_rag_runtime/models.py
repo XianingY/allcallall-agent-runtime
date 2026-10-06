@@ -66,6 +66,32 @@ class RerankResponse(BaseModel):
     trace: dict[str, Any] = Field(default_factory=dict)
 
 
+class PreparedCandidates(BaseModel):
+    """Normalized, filtered, deduplicated, and tokenized candidates ready for reranking.
+
+    Computed once per unique query, source types, and chunk fingerprint, and
+    reused when those inputs are unchanged, avoiding redundant reranking.
+    """
+
+    query: str
+    source_types: tuple[str, ...] = ()
+    chunks: tuple[ContextChunk, ...] = ()
+    tokens: tuple[str, ...] = ()
+    chunk_count: int = 0
+    fingerprint: str = ""  # SHA-256 prefix of chunk keys for change detection
+    token_count: int = 0
+
+
+class PrepareCandidatesRequest(BaseModel):
+    """Request to prepare candidates for later reranking."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str
+    chunks: list[ContextChunk] = Field(default_factory=list)
+    source_types: list[str] = Field(default_factory=list)
+
+
 class AgenticRetrievalRequest(RetrievalQueryRequest):
     max_steps: int = 3
     min_confidence: float = 0.6

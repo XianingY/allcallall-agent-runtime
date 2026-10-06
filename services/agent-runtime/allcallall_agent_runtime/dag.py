@@ -28,17 +28,32 @@ from .nodes import (
     searcher,
     synthesize,
 )
+from .nodes.parallel_roles import parallel_roles_node
 from .nodes.check import route_quality
 from .nodes.retrieval import build_evidence_pack, grounding_check, merge, sufficiency_gate
 from .nodes.role_router import next_role_after, route_roles
 
 # Possible targets of the dynamic role-router conditional edges. Every router
 # edge may resolve to any role node or straight to ``merge`` (when no further
-# role is scheduled), so all five must appear in each edge's path map.
-_ROLE_TARGETS: list[str] = ["searcher", "memory_agent", "synthesize", "risk_analyst", "merge"]
+# role is scheduled), so every target below must appear in each edge's path map.
+_ROLE_TARGETS: list[str] = [
+    "searcher",
+    "memory_agent",
+    "parallel_roles",
+    "synthesize",
+    "risk_analyst",
+    "merge",
+]
 
 
 def _route_first(state: GraphState) -> str:
+    allocation = state.get("role_allocation")
+    if (
+        app_config.enable_parallel_roles
+        and allocation is not None
+        and {"searcher", "memory_agent"}.issubset(allocation.roles)
+    ):
+        return "parallel_roles"
     return next_role_after(state, None)
 
 
@@ -56,6 +71,10 @@ def _route_after_synthesize(state: GraphState) -> str:
 
 def _route_after_risk_analyst(state: GraphState) -> str:
     return next_role_after(state, "risk_analyst")
+
+
+def _route_after_parallel_roles(state: GraphState) -> str:
+    return next_role_after(state, "memory_agent")
 
 
 def build_workflow_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Any:
@@ -82,6 +101,7 @@ def build_workflow_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -
     graph.add_node("searcher", searcher)
     graph.add_node("memory_agent", memory_agent)
     graph.add_node("synthesize", synthesize)
+    graph.add_node("parallel_roles", parallel_roles_node)
     graph.add_node("risk_analyst", risk_analyst)
     graph.add_node("merge", merge)
     graph.add_node("grounding_check", grounding_check)
@@ -106,6 +126,7 @@ def build_workflow_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -
         graph.add_edge("sufficiency_gate", "decompose")
         graph.add_edge("decompose", "role_router")
         graph.add_conditional_edges("role_router", _route_first, _ROLE_TARGETS)
+        graph.add_conditional_edges("parallel_roles", _route_after_parallel_roles, _ROLE_TARGETS)
         graph.add_conditional_edges("searcher", _route_after_searcher, _ROLE_TARGETS)
         graph.add_conditional_edges("memory_agent", _route_after_memory_agent, _ROLE_TARGETS)
         graph.add_conditional_edges("synthesize", _route_after_synthesize, _ROLE_TARGETS)

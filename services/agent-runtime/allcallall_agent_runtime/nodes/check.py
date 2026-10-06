@@ -21,6 +21,7 @@ from typing import Any
 
 from ..config import config as app_config
 from ..models import OutputDecision, TraceEvent
+from ..deadline import get_current_deadline
 from ..state import GraphState
 
 
@@ -68,6 +69,7 @@ def quality_check(state: GraphState) -> dict[str, Any]:
     decides one of three outcomes. The decision is rule-driven (not LLM-judged)
     to stay reproducible and resistant to prompt injection.
     """
+    _check_cancelled()
     critic = state.get("critic_result")
     retries = int(state.get("critic_retries", 0) or 0)
     max_retries = max(0, int(app_config.max_quality_retries))
@@ -158,6 +160,7 @@ def _accumulate_quality(state: GraphState, outcome: CheckOutcome) -> OutputDecis
 
 def safety_check(state: GraphState) -> dict[str, Any]:
     """L2 review: is it safe to surface / act on the proposed writes?"""
+    _check_cancelled()
     proposed = state.get("proposed_tool_calls", []) or []
     for item in proposed:
         # A write that is not gated behind explicit approval is a hard safety violation.
@@ -216,3 +219,11 @@ def route_quality(state: GraphState) -> str:
 def route_safety(state: GraphState) -> str:
     """Conditional edge from ``safety_check``: always advance to the approval gate."""
     return "approve"
+
+
+
+def _check_cancelled() -> None:
+    """Raise ExecutionCancelled if the current execution deadline has been cancelled or expired."""
+    deadline = get_current_deadline()
+    if deadline is not None:
+        deadline.raise_if_cancelled()

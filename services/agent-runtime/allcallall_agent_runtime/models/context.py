@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .retrieval import RetrievalMode
+
 
 class ConversationMessage(BaseModel):
     id: int = 0
@@ -95,10 +97,23 @@ class AgenticRAGConfig(BaseModel):
     min_confidence: float = 0.6
 
 
+class ContextManifest(BaseModel):
+    """Context-collection accounting emitted by the Go backend."""
+
+    selected: dict[str, int] = Field(default_factory=dict)
+    truncated: list[str] = Field(default_factory=list)
+    serialized_bytes: int = 0
+    estimated_tokens: int = 0
+    sql_statements: int = 0
+
+
 class MeetingBriefRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: str = ""
+    execution_id: str = ""
+    expected_checkpoint_version: int = 0
+    tool_capability: str = ""
     organization_id: int
     user_id: int
     conversation_id: int
@@ -116,6 +131,17 @@ class MeetingBriefRequest(BaseModel):
     agentic_rag: AgenticRAGConfig = Field(default_factory=AgenticRAGConfig)
     model_history: str = ""  # bounded history injected by context compression
     long_term_memory: list[str] = Field(default_factory=list)  # L2 retrieved durable memory
+    retrieval_mode: RetrievalMode = "hybrid"
+    context_fingerprint: str = ""  # SHA-256 prefix of context chunk keys; empty means unset
+    corpus_version: str = ""  # Opaque version tag for the indexed corpus; empty means unset
+    context_manifest: ContextManifest | None = None
+
+    @field_validator("retrieval_mode", mode="before")
+    @classmethod
+    def empty_retrieval_mode_defaults_to_hybrid(cls, value: object) -> object:
+        if value in ("go_context", "rag_runtime", "hybrid"):
+            return value
+        return "hybrid"
 
     @field_validator(
         "messages",
@@ -133,4 +159,3 @@ class MeetingBriefRequest(BaseModel):
     @classmethod
     def none_to_dict(cls, value: object) -> object:
         return {} if value is None else value
-

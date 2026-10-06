@@ -6,6 +6,8 @@ import textwrap
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
+from pydantic import ValidationError
 
 import allcallall_agent_runtime.config as cfg
 from allcallall_agent_runtime.async_tool_queue import AsyncToolQueue, ToolQueueWorker, get_default_tool_queue
@@ -13,6 +15,26 @@ from allcallall_agent_runtime.checkpoint.store import NullCheckpointStore
 from allcallall_agent_runtime.harness import AllCallAllAgentHarness
 from allcallall_agent_runtime.main import app
 from allcallall_agent_runtime.models import ToolProposal, WorkflowRequest
+
+
+def test_multi_replica_tool_queue_is_rejected_at_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PY_AGENT_ENABLE_TOOL_QUEUE", "true")
+    monkeypatch.setenv("PY_AGENT_DEPLOYMENT_MODE", "multi_replica")
+
+    with pytest.raises(ValidationError, match="PY_AGENT_DEPLOYMENT_MODE=single_process"):
+        cfg.AgentRuntimeConfig(_env_file=None)
+
+
+def test_single_process_tool_queue_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PY_AGENT_ENABLE_TOOL_QUEUE", "true")
+    monkeypatch.setenv("PY_AGENT_DEPLOYMENT_MODE", "single_process")
+
+    config = cfg.AgentRuntimeConfig(_env_file=None)
+
+    assert config.deployment_mode == "single_process"
+    assert config.enable_tool_queue is True
 
 
 def _request() -> WorkflowRequest:
@@ -39,7 +61,9 @@ def _proposal() -> ToolProposal:
 
 def test_harness_enqueues_proposals_when_queue_enabled() -> None:
     previous = cfg.config.enable_tool_queue
+    previous_deployment_mode = cfg.config.deployment_mode
     cfg.config.enable_tool_queue = True
+    cfg.config.deployment_mode = "single_process"
     try:
         queue: AsyncToolQueue = AsyncToolQueue()
         harness = AllCallAllAgentHarness(checkpoint_store=NullCheckpointStore(), tool_queue=queue)
@@ -52,6 +76,7 @@ def test_harness_enqueues_proposals_when_queue_enabled() -> None:
         assert tasks[0].payload["user_id"] == 2
     finally:
         cfg.config.enable_tool_queue = previous
+        cfg.config.deployment_mode = previous_deployment_mode
 
 
 def test_harness_does_not_enqueue_when_disabled() -> None:

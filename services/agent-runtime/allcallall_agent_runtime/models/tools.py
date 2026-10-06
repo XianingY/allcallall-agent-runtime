@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class ToolProposal(BaseModel):
+    tool_call_id: str = ""
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
     reason: str = ""
@@ -17,4 +18,6 @@ class ToolProposal(BaseModel):
     max_attempts: int = 3
     rate_limit_key: str = ""
     dead_letter_queue: str = "agent_writebacks_dead_letter"
-
+    mcp_installation_id: int = 0
+    mcp_revision_id: int = 0
+    mcp_tool_id: int = 0

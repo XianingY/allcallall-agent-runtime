@@ -30,6 +30,8 @@ from ..persistence.mysql_pool import (
     mysql_connection_factory as mysql_connection_factory,
 )
 from ..persistence.mysql_schema import initialize_checkpoint_schema
+from ..metrics import checkpoint_payload_bytes
+from .payload import project_checkpoint_state, serialized_checkpoint_size
 
 
 NamespaceKey = tuple[str, str]
@@ -881,17 +883,30 @@ class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
     def _drop_unserializable_channels(self, checkpoint: Checkpoint) -> Checkpoint:
         """Replace channels that cannot be serialized (e.g. live ``provider`` /
         ``tool_bridge`` objects injected per-run) with ``None`` before
-        persistence. They are re-injected by the harness on every invoke, so
-        dropping them from the durable checkpoint is safe and avoids forcing
-        every transient dependency into the serde."""
+        persistence, and project large state values to reduce checkpoint size.
+
+        Task 12 extends this method to also compact chunk lists, trace events,
+        and citations into their projected forms so the durable checkpoint
+        stays within the 16 MiB transaction limit.
+        """
         channel_values = dict(checkpoint.get("channel_values", {}))
         dirty = False
+        original_size = serialized_checkpoint_size(channel_values)
+        # First, drop non-serializable objects (original behavior).
         for key, value in list(channel_values.items()):
             try:
                 self.serde.dumps_typed({"__probe__": value})
             except Exception:
                 channel_values[key] = None
                 dirty = True
+        # Second, project large state values to reduce checkpoint size.
+        projected = project_checkpoint_state(channel_values)
+        projected_size = serialized_checkpoint_size(projected)
+        if projected is not channel_values:
+            channel_values = projected
+            dirty = True
+        checkpoint_payload_bytes.labels(stage="original").observe(max(0, original_size))
+        checkpoint_payload_bytes.labels(stage="projected").observe(max(0, projected_size))
         if not dirty:
             return checkpoint
         return {**checkpoint, "channel_values": channel_values}

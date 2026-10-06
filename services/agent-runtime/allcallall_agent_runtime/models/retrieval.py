@@ -5,6 +5,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+RetrievalMode = Literal["go_context", "rag_runtime", "hybrid"]
+"""Retrieval mode: ``go_context`` uses only preloaded Go chunks, ``rag_runtime``
+delegates to the RAG runtime, and ``hybrid`` (default) uses Go context first and
+calls RAG only when context sufficiency is below threshold or the plan requires
+an absent source type."""
+
+
 class RetrievalPlanStep(BaseModel):
     step: int
     query: str

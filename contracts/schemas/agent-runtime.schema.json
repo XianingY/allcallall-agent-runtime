@@ -178,6 +178,42 @@
         "title": "ContextChunk",
         "type": "object"
       },
+      "ContextManifest": {
+        "description": "Context-collection accounting emitted by the Go backend.",
+        "properties": {
+          "selected": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Selected",
+            "type": "object"
+          },
+          "truncated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Truncated",
+            "type": "array"
+          },
+          "serialized_bytes": {
+            "default": 0,
+            "title": "Serialized Bytes",
+            "type": "integer"
+          },
+          "estimated_tokens": {
+            "default": 0,
+            "title": "Estimated Tokens",
+            "type": "integer"
+          },
+          "sql_statements": {
+            "default": 0,
+            "title": "Sql Statements",
+            "type": "integer"
+          }
+        },
+        "title": "ContextManifest",
+        "type": "object"
+      },
       "ConversationMessage": {
         "properties": {
           "id": {
@@ -387,6 +423,21 @@
         "title": "Request Id",
         "type": "string"
       },
+      "execution_id": {
+        "default": "",
+        "title": "Execution Id",
+        "type": "string"
+      },
+      "expected_checkpoint_version": {
+        "default": 0,
+        "title": "Expected Checkpoint Version",
+        "type": "integer"
+      },
+      "tool_capability": {
+        "default": "",
+        "title": "Tool Capability",
+        "type": "string"
+      },
       "organization_id": {
         "title": "Organization Id",
         "type": "integer"
@@ -476,6 +527,37 @@
         },
         "title": "Long Term Memory",
         "type": "array"
+      },
+      "retrieval_mode": {
+        "default": "hybrid",
+        "enum": [
+          "go_context",
+          "rag_runtime",
+          "hybrid"
+        ],
+        "title": "Retrieval Mode",
+        "type": "string"
+      },
+      "context_fingerprint": {
+        "default": "",
+        "title": "Context Fingerprint",
+        "type": "string"
+      },
+      "corpus_version": {
+        "default": "",
+        "title": "Corpus Version",
+        "type": "string"
+      },
+      "context_manifest": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ContextManifest"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
       }
     },
     "required": [
@@ -521,6 +603,28 @@
           }
         },
         "title": "AgentHarnessMetadata",
+        "type": "object"
+      },
+      "ApprovalDecision": {
+        "properties": {
+          "tool_call_id": {
+            "title": "Tool Call Id",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_call_id",
+          "decision"
+        ],
+        "title": "ApprovalDecision",
         "type": "object"
       },
       "Citation": {
@@ -1187,6 +1291,80 @@
         "title": "OutputDecision",
         "type": "object"
       },
+      "PendingApproval": {
+        "properties": {
+          "type": {
+            "const": "tool_approval",
+            "default": "tool_approval",
+            "title": "Type",
+            "type": "string"
+          },
+          "approval_request_id": {
+            "title": "Approval Request Id",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/$defs/PendingApprovalTool"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "approval_request_id"
+        ],
+        "title": "PendingApproval",
+        "type": "object"
+      },
+      "PendingApprovalTool": {
+        "properties": {
+          "tool_call_id": {
+            "title": "Tool Call Id",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "arguments_sha256": {
+            "title": "Arguments Sha256",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "mcp_installation_id": {
+            "default": 0,
+            "title": "Mcp Installation Id",
+            "type": "integer"
+          },
+          "mcp_revision_id": {
+            "default": 0,
+            "title": "Mcp Revision Id",
+            "type": "integer"
+          },
+          "mcp_tool_id": {
+            "default": 0,
+            "title": "Mcp Tool Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tool_call_id",
+          "tool_name",
+          "arguments_sha256"
+        ],
+        "title": "PendingApprovalTool",
+        "type": "object"
+      },
       "RetrievalAttempt": {
         "properties": {
           "step": {
@@ -1577,6 +1755,11 @@
       },
       "ToolProposal": {
         "properties": {
+          "tool_call_id": {
+            "default": "",
+            "title": "Tool Call Id",
+            "type": "string"
+          },
           "tool_name": {
             "title": "Tool Name",
             "type": "string"
@@ -1639,6 +1822,21 @@
             "default": "agent_writebacks_dead_letter",
             "title": "Dead Letter Queue",
             "type": "string"
+          },
+          "mcp_installation_id": {
+            "default": 0,
+            "title": "Mcp Installation Id",
+            "type": "integer"
+          },
+          "mcp_revision_id": {
+            "default": 0,
+            "title": "Mcp Revision Id",
+            "type": "integer"
+          },
+          "mcp_tool_id": {
+            "default": 0,
+            "title": "Mcp Tool Id",
+            "type": "integer"
           }
         },
         "required": [
@@ -1735,6 +1933,21 @@
         "title": "Provider",
         "type": "string"
       },
+      "execution_id": {
+        "default": "",
+        "title": "Execution Id",
+        "type": "string"
+      },
+      "checkpoint_id": {
+        "default": "",
+        "title": "Checkpoint Id",
+        "type": "string"
+      },
+      "checkpoint_version": {
+        "default": 0,
+        "title": "Checkpoint Version",
+        "type": "integer"
+      },
       "summary": {
         "default": "",
         "title": "Summary",
@@ -1785,6 +1998,24 @@
           "$ref": "#/$defs/ToolProposal"
         },
         "title": "Proposed Tool Calls",
+        "type": "array"
+      },
+      "pending_approval": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/PendingApproval"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "approval_decisions": {
+        "items": {
+          "$ref": "#/$defs/ApprovalDecision"
+        },
+        "title": "Approval Decisions",
         "type": "array"
       },
       "prompt_version": {
@@ -2066,6 +2297,11 @@
   },
   "ToolProposal": {
     "properties": {
+      "tool_call_id": {
+        "default": "",
+        "title": "Tool Call Id",
+        "type": "string"
+      },
       "tool_name": {
         "title": "Tool Name",
         "type": "string"
@@ -2128,6 +2364,21 @@
         "default": "agent_writebacks_dead_letter",
         "title": "Dead Letter Queue",
         "type": "string"
+      },
+      "mcp_installation_id": {
+        "default": 0,
+        "title": "Mcp Installation Id",
+        "type": "integer"
+      },
+      "mcp_revision_id": {
+        "default": 0,
+        "title": "Mcp Revision Id",
+        "type": "integer"
+      },
+      "mcp_tool_id": {
+        "default": 0,
+        "title": "Mcp Tool Id",
+        "type": "integer"
       }
     },
     "required": [
@@ -3191,6 +3442,28 @@
         "title": "AgenticRAGConfig",
         "type": "object"
       },
+      "ApprovalDecision": {
+        "properties": {
+          "tool_call_id": {
+            "title": "Tool Call Id",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_call_id",
+          "decision"
+        ],
+        "title": "ApprovalDecision",
+        "type": "object"
+      },
       "BadcaseCategory": {
         "enum": [
           "retrieval_miss",
@@ -3494,6 +3767,42 @@
           "snippet"
         ],
         "title": "ContextChunk",
+        "type": "object"
+      },
+      "ContextManifest": {
+        "description": "Context-collection accounting emitted by the Go backend.",
+        "properties": {
+          "selected": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Selected",
+            "type": "object"
+          },
+          "truncated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Truncated",
+            "type": "array"
+          },
+          "serialized_bytes": {
+            "default": 0,
+            "title": "Serialized Bytes",
+            "type": "integer"
+          },
+          "estimated_tokens": {
+            "default": 0,
+            "title": "Estimated Tokens",
+            "type": "integer"
+          },
+          "sql_statements": {
+            "default": 0,
+            "title": "Sql Statements",
+            "type": "integer"
+          }
+        },
+        "title": "ContextManifest",
         "type": "object"
       },
       "ContextSufficiency": {
@@ -4079,6 +4388,21 @@
             "title": "Request Id",
             "type": "string"
           },
+          "execution_id": {
+            "default": "",
+            "title": "Execution Id",
+            "type": "string"
+          },
+          "expected_checkpoint_version": {
+            "default": 0,
+            "title": "Expected Checkpoint Version",
+            "type": "integer"
+          },
+          "tool_capability": {
+            "default": "",
+            "title": "Tool Capability",
+            "type": "string"
+          },
           "organization_id": {
             "title": "Organization Id",
             "type": "integer"
@@ -4168,6 +4492,37 @@
             },
             "title": "Long Term Memory",
             "type": "array"
+          },
+          "retrieval_mode": {
+            "default": "hybrid",
+            "enum": [
+              "go_context",
+              "rag_runtime",
+              "hybrid"
+            ],
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "context_fingerprint": {
+            "default": "",
+            "title": "Context Fingerprint",
+            "type": "string"
+          },
+          "corpus_version": {
+            "default": "",
+            "title": "Corpus Version",
+            "type": "string"
+          },
+          "context_manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ContextManifest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -4202,6 +4557,21 @@
             "default": "rules",
             "title": "Provider",
             "type": "string"
+          },
+          "execution_id": {
+            "default": "",
+            "title": "Execution Id",
+            "type": "string"
+          },
+          "checkpoint_id": {
+            "default": "",
+            "title": "Checkpoint Id",
+            "type": "string"
+          },
+          "checkpoint_version": {
+            "default": 0,
+            "title": "Checkpoint Version",
+            "type": "integer"
           },
           "summary": {
             "default": "",
@@ -4253,6 +4623,24 @@
               "$ref": "#/$defs/ToolProposal"
             },
             "title": "Proposed Tool Calls",
+            "type": "array"
+          },
+          "pending_approval": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PendingApproval"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "approval_decisions": {
+            "items": {
+              "$ref": "#/$defs/ApprovalDecision"
+            },
+            "title": "Approval Decisions",
             "type": "array"
           },
           "prompt_version": {
@@ -4489,6 +4877,80 @@
           }
         },
         "title": "OutputDecision",
+        "type": "object"
+      },
+      "PendingApproval": {
+        "properties": {
+          "type": {
+            "const": "tool_approval",
+            "default": "tool_approval",
+            "title": "Type",
+            "type": "string"
+          },
+          "approval_request_id": {
+            "title": "Approval Request Id",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/$defs/PendingApprovalTool"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "approval_request_id"
+        ],
+        "title": "PendingApproval",
+        "type": "object"
+      },
+      "PendingApprovalTool": {
+        "properties": {
+          "tool_call_id": {
+            "title": "Tool Call Id",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "arguments_sha256": {
+            "title": "Arguments Sha256",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "mcp_installation_id": {
+            "default": 0,
+            "title": "Mcp Installation Id",
+            "type": "integer"
+          },
+          "mcp_revision_id": {
+            "default": 0,
+            "title": "Mcp Revision Id",
+            "type": "integer"
+          },
+          "mcp_tool_id": {
+            "default": 0,
+            "title": "Mcp Tool Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tool_call_id",
+          "tool_name",
+          "arguments_sha256"
+        ],
+        "title": "PendingApprovalTool",
         "type": "object"
       },
       "RetrievalAttempt": {
@@ -4901,6 +5363,11 @@
       },
       "ToolProposal": {
         "properties": {
+          "tool_call_id": {
+            "default": "",
+            "title": "Tool Call Id",
+            "type": "string"
+          },
           "tool_name": {
             "title": "Tool Name",
             "type": "string"
@@ -4963,6 +5430,21 @@
             "default": "agent_writebacks_dead_letter",
             "title": "Dead Letter Queue",
             "type": "string"
+          },
+          "mcp_installation_id": {
+            "default": 0,
+            "title": "Mcp Installation Id",
+            "type": "integer"
+          },
+          "mcp_revision_id": {
+            "default": 0,
+            "title": "Mcp Revision Id",
+            "type": "integer"
+          },
+          "mcp_tool_id": {
+            "default": 0,
+            "title": "Mcp Tool Id",
+            "type": "integer"
           }
         },
         "required": [
@@ -5353,6 +5835,11 @@
           "route_accuracy": {
             "default": 0,
             "title": "Route Accuracy",
+            "type": "number"
+          },
+          "role_routing_match_rate": {
+            "default": 0,
+            "title": "Role Routing Match Rate",
             "type": "number"
           },
           "loop_completion_rate": {

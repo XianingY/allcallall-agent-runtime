@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from allcallall_agent_runtime.config import config as app_config
 from allcallall_agent_runtime.context_compression import SQLiteLongTermMemory
 from allcallall_agent_runtime.dag import build_workflow_graph
+from allcallall_agent_runtime.dag import _route_first
 from allcallall_agent_runtime.main import app
 from allcallall_agent_runtime.mcp_tools import (
     EXEC_ASYNC,
@@ -46,6 +47,21 @@ from allcallall_agent_runtime.nodes.synthesis import (
 )
 from allcallall_agent_runtime.state import GraphState, RoleAllocation
 from allcallall_agent_runtime.tool_layer import StubGoToolBridge
+from allcallall_agent_runtime.retrieval import (
+    RunRetrievalCache,
+    compute_context_fingerprint,
+    prepare_candidates,
+    rerank_prepared,
+)
+from allcallall_agent_runtime.nodes.retrieval import (
+    _effective_retrieval_mode,
+    _should_call_rag,
+)
+from allcallall_agent_runtime.models import (
+    RetrievalPlan,
+    IntentRoute,
+    RetrievalPlanStep,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -137,6 +153,9 @@ def test_early_termination_goal_achieved_saves_iterations() -> None:
         bridge=bridge,
         enable_early_termination=True,
         goal_threshold=0.7,
+        required_roles_complete=True,
+        unresolved_approval=False,
+        safety_blocked=False,
     )
     sig = result.termination_signal
     assert sig is not None and sig.triggered
@@ -222,6 +241,20 @@ def test_dynamic_graph_compiles_when_role_router_enabled(monkeypatch: pytest.Mon
         assert "role_router" in node_names
     finally:
         monkeypatch.setattr(app_config, "enable_role_router", False)
+
+
+def test_parallel_group_metadata_alone_does_not_enable_parallelism(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state: GraphState = {
+        "role_allocation": RoleAllocation(
+            roles=["searcher", "memory_agent", "synthesize", "risk_analyst"],
+            parallel_groups=[["searcher", "memory_agent"], ["synthesize"], ["risk_analyst"]],
+        )
+    }
+    monkeypatch.setattr(app_config, "enable_role_router", True)
+    monkeypatch.setattr(app_config, "enable_parallel_roles", False)
+    assert _route_first(state) == "searcher"
 
 
 # --------------------------------------------------------------------------- #
@@ -367,3 +400,167 @@ def test_tool_queue_metrics_endpoint() -> None:
     assert "avg_attempts_per_task" in body
     assert "dead_letter_ratio" in body
     assert isinstance(body["total_enqueued"], int)
+
+
+# --------------------------------------------------------------------------- #
+# Task 12: Retrieval ownership and per-run reuse                                    #
+# --------------------------------------------------------------------------- #
+
+
+def _request_with_mode(retrieval_mode: str = "", context_chunks: list[ContextChunk] | None = None) -> MeetingBriefRequest:
+    return MeetingBriefRequest(
+        organization_id=1,
+        user_id=1,
+        conversation_id=1,
+        workflow_run_id=1,
+        goal="Summarize the meeting and propose follow-ups.",
+        preset="meeting_brief",
+        context_chunks=context_chunks or [_chunk("meeting_transcript")],
+        retrieval_mode=retrieval_mode,
+    )
+
+
+def test_go_context_mode_does_not_call_rag() -> None:
+    """go_context mode should use preloaded Go chunks without calling RAG."""
+    plan = RetrievalPlan(enabled=True, intent_route=IntentRoute(required_source_types=["meeting_transcript"]))
+    step = RetrievalPlanStep(step=1, query="test", source_scope="all")
+    gathered: list[ContextChunk] = []
+
+    assert _should_call_rag("go_context", plan, step, gathered) is False
+
+
+def test_rag_runtime_mode_always_calls_rag() -> None:
+    """rag_runtime mode should always call RAG."""
+    plan = RetrievalPlan(enabled=True, intent_route=IntentRoute(required_source_types=["meeting_transcript"]))
+    step = RetrievalPlanStep(step=1, query="test", source_scope="all")
+    gathered: list[ContextChunk] = []
+
+    assert _should_call_rag("rag_runtime", plan, step, gathered) is True
+
+
+def test_hybrid_mode_calls_rag_when_source_missing() -> None:
+    """hybrid mode should call RAG when a required source type is missing."""
+    plan = RetrievalPlan(enabled=True, intent_route=IntentRoute(required_source_types=["knowledge"]))
+    step = RetrievalPlanStep(step=1, query="test", source_scope="knowledge")
+    # gathered has meeting_transcript but not knowledge
+    gathered = [_chunk("meeting_transcript")]
+
+    assert _should_call_rag("hybrid", plan, step, gathered) is True
+
+
+def test_hybrid_mode_skips_rag_when_sources_satisfied() -> None:
+    """hybrid mode should skip RAG when all required sources are already gathered."""
+    plan = RetrievalPlan(enabled=True, intent_route=IntentRoute(required_source_types=["meeting_transcript"]))
+    step = RetrievalPlanStep(step=1, query="test", source_scope="all")
+    gathered = [_chunk("meeting_transcript")]
+
+    assert _should_call_rag("hybrid", plan, step, gathered) is False
+
+
+def test_effective_retrieval_mode_defaults_to_hybrid() -> None:
+    """Empty retrieval_mode should default to hybrid."""
+    request = _request_with_mode("")
+    assert _effective_retrieval_mode(request) == "hybrid"
+
+
+def test_retrieval_mode_model_default_is_hybrid() -> None:
+    request = MeetingBriefRequest(
+        organization_id=1,
+        user_id=1,
+        conversation_id=1,
+        workflow_run_id=1,
+        goal="Summarize the meeting.",
+    )
+    assert request.retrieval_mode == "hybrid"
+
+
+def test_effective_retrieval_mode_preserves_valid_values() -> None:
+    """Valid retrieval_mode values should be preserved."""
+    for mode in ("go_context", "rag_runtime", "hybrid"):
+        request = _request_with_mode(mode)
+        assert _effective_retrieval_mode(request) == mode
+
+
+class TestRunRetrievalCache:
+    def test_cache_hit_returns_cached_chunks(self) -> None:
+        cache = RunRetrievalCache(max_entries=16)
+        chunks = [_chunk("meeting_transcript")]
+        cache.put("query", "all", "adaptive", "fp1", "v1", chunks)
+        result = cache.get("query", "all", "adaptive", "fp1", "v1")
+        assert result is not None
+        assert len(result) == 1
+
+    def test_cache_miss_returns_none(self) -> None:
+        cache = RunRetrievalCache(max_entries=16)
+        result = cache.get("query", "all", "adaptive", "fp1", "v1")
+        assert result is None
+
+    def test_cache_evicts_oldest_when_full(self) -> None:
+        cache = RunRetrievalCache(max_entries=2)
+        cache.put("q1", "all", "adaptive", "fp1", "v1", [_chunk("meeting_transcript")])
+        cache.put("q2", "all", "adaptive", "fp1", "v1", [_chunk("knowledge")])
+        cache.put("q3", "all", "adaptive", "fp1", "v1", [_chunk("note")])
+        # q1 should be evicted
+        assert cache.get("q1", "all", "adaptive", "fp1", "v1") is None
+        assert cache.get("q2", "all", "adaptive", "fp1", "v1") is not None
+
+    def test_cache_tracks_hits_and_misses(self) -> None:
+        cache = RunRetrievalCache(max_entries=16)
+        cache.put("q1", "all", "adaptive", "fp1", "v1", [_chunk("meeting_transcript")])
+        cache.get("q1", "all", "adaptive", "fp1", "v1")  # hit
+        cache.get("q2", "all", "adaptive", "fp1", "v1")  # miss
+        assert cache.hits == 1
+        assert cache.misses == 1
+
+    def test_cache_key_normalizes_query(self) -> None:
+        cache = RunRetrievalCache(max_entries=16)
+        chunks = [_chunk("meeting_transcript")]
+        cache.put("  Hello   World  ", "all", "adaptive", "fp1", "v1", chunks)
+        result = cache.get("hello world", "all", "adaptive", "fp1", "v1")
+        assert result is not None
+
+
+class TestPrepareCandidates:
+    def test_prepare_candidates_deduplicates(self) -> None:
+        chunks = [_chunk("meeting_transcript", "a"), _chunk("meeting_transcript", "a")]
+        prepared = prepare_candidates("test", chunks)
+        assert len(prepared.chunks) == 1
+        assert prepared.chunk_count == len(prepared.chunks)
+        assert prepared.token_count == len(prepared.tokens)
+
+    def test_prepare_candidates_filters_by_source_type(self) -> None:
+        chunks = [_chunk("meeting_transcript"), _chunk("knowledge")]
+        prepared = prepare_candidates("test", chunks, source_types=["knowledge"])
+        assert len(prepared.chunks) == 1
+        assert prepared.chunks[0].source_type == "knowledge"
+
+    def test_prepare_candidates_fingerprint_is_deterministic(self) -> None:
+        chunks = [_chunk("meeting_transcript"), _chunk("knowledge")]
+        p1 = prepare_candidates("test", chunks)
+        p2 = prepare_candidates("test", chunks)
+        assert p1.fingerprint == p2.fingerprint
+
+    def test_rerank_prepared_returns_reranked_chunks(self) -> None:
+        chunks = [
+            ContextChunk(chunk_id="mt-1", source_type="meeting_transcript", source_id="1", snippet="meeting content", score=50),
+            ContextChunk(chunk_id="kb-1", source_type="knowledge", source_id="2", snippet="knowledge content", score=90),
+        ]
+        prepared = prepare_candidates("test query", chunks)
+        output = rerank_prepared(prepared, top_k=2)
+        assert len(output.chunks) <= 2
+        assert output.chunks[0].final_rank == 1
+
+
+class TestContextFingerprint:
+    def test_fingerprint_is_order_independent(self) -> None:
+        chunks_a = [_chunk("meeting_transcript", "a"), _chunk("knowledge", "b")]
+        chunks_b = [_chunk("knowledge", "b"), _chunk("meeting_transcript", "a")]
+        assert compute_context_fingerprint(chunks_a) == compute_context_fingerprint(chunks_b)
+
+    def test_fingerprint_is_empty_for_empty_chunks(self) -> None:
+        assert compute_context_fingerprint([]) == ""
+
+    def test_fingerprint_changes_with_different_chunks(self) -> None:
+        chunks_a = [_chunk("meeting_transcript", "a")]
+        chunks_b = [_chunk("knowledge", "b")]
+        assert compute_context_fingerprint(chunks_a) != compute_context_fingerprint(chunks_b)

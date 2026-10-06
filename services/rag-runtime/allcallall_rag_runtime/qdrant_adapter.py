@@ -2,29 +2,46 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import httpx
 
-from .config import config
+from .config import RAGRuntimeConfig, config as default_config
+from .http_requests import build_http_client, post_json_without_cookies, service_request_timeout
+from .metrics import metrics
 from .models import ContextChunk, RetrievalQueryRequest
+
+logger = logging.getLogger(__name__)
 
 
 class QdrantAdapterError(RuntimeError):
     """Raised when the optional Qdrant adapter cannot complete a request."""
 
+    def __init__(self, message: str, *, error_type: str = "http") -> None:
+        super().__init__(message)
+        self.error_type = error_type
+
 
 class QdrantAdapter:
     """HTTP adapter for Qdrant without making it a production data source of truth."""
 
-    def __init__(self) -> None:
-        self.url = config.qdrant_url.rstrip("/")
-        self.collection = config.qdrant_collection
-        self.api_key = config.qdrant_api_key
-        self.timeout = config.qdrant_timeout_sec
+    def __init__(
+        self,
+        *,
+        config: RAGRuntimeConfig | None = None,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        settings = config or default_config
+        self._settings = settings
+        self.url = settings.qdrant_url.rstrip("/")
+        self.collection = settings.qdrant_collection
+        self.api_key = settings.qdrant_api_key
+        self.timeout = settings.qdrant_timeout_sec
+        self._http = http_client
 
     def configured(self) -> bool:
-        return config.vector_store == "qdrant" and bool(self.url and self.collection)
+        return self._settings.vector_store == "qdrant" and bool(self.url and self.collection)
 
     def query(self, request: RetrievalQueryRequest) -> list[ContextChunk]:
         if not self.configured():
@@ -32,16 +49,44 @@ class QdrantAdapter:
         payload = self._search_payload(request) if request.query_vector else self._scroll_payload(request)
         endpoint = "search" if request.query_vector else "scroll"
         try:
-            response = httpx.post(
-                f"{self.url}/collections/{self.collection}/points/{endpoint}",
-                json=payload,
-                headers=self._headers(),
-                timeout=self.timeout,
+            if self._http is None:
+                with build_http_client(self._settings) as client:
+                    response = post_json_without_cookies(
+                        client,
+                        f"{self.url}/collections/{self.collection}/points/{endpoint}",
+                        payload=payload,
+                        headers=self._headers(),
+                        timeout=service_request_timeout(self._settings, self.timeout),
+                    )
+            else:
+                response = post_json_without_cookies(
+                    self._http,
+                    f"{self.url}/collections/{self.collection}/points/{endpoint}",
+                    payload=payload,
+                    headers=self._headers(),
+                    timeout=service_request_timeout(self._settings, self.timeout),
+                )
+        except httpx.PoolTimeout as exc:
+            metrics.inc("rag_runtime_qdrant_pool_timeouts_total")
+            logger.warning(
+                "rag_runtime_qdrant_pool_timeout",
+                extra={"error_type": "pool_timeout"},
             )
+            raise QdrantAdapterError("qdrant connection pool timed out", error_type="pool_timeout") from exc
         except httpx.HTTPError as exc:
-            raise QdrantAdapterError(str(exc)) from exc
+            metrics.inc("rag_runtime_qdrant_errors_total")
+            logger.warning(
+                "rag_runtime_qdrant_http_error",
+                extra={"error_type": "network"},
+            )
+            raise QdrantAdapterError("qdrant unavailable", error_type="network") from exc
         if response.status_code >= 400:
-            raise QdrantAdapterError(f"qdrant returned HTTP {response.status_code}")
+            metrics.inc("rag_runtime_qdrant_errors_total")
+            logger.warning(
+                "rag_runtime_qdrant_http_error",
+                extra={"error_type": "http_status"},
+            )
+            raise QdrantAdapterError(f"qdrant returned HTTP {response.status_code}", error_type="http_status")
         return self._parse_response(response.json(), vector_search=bool(request.query_vector))
 
     def _headers(self) -> dict[str, str]:

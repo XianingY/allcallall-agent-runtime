@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 
@@ -16,10 +17,77 @@ from .models import (
     GraphExpansion,
     KnowledgeGraphEdge,
     GroundingCheckResponse,
+    PreparedCandidates,
     RetrievalAttempt,
     RetrievalRoute,
     RerankResponse,
 )
+
+
+
+# --------------------------------------------------------------------------- #
+# Task 12: candidate preparation and fingerprint-based rerank reuse             #
+# --------------------------------------------------------------------------- #
+
+
+def _compute_fingerprint(chunks: list[ContextChunk]) -> str:
+    """Compute a stable fingerprint for a list of context chunks."""
+    if not chunks:
+        return ""
+    keys = sorted(chunk_key(c) for c in chunks)
+    digest = hashlib.sha256("|".join(keys).encode()).hexdigest()
+    return digest[:16]
+
+
+def prepare_candidates(
+    query: str,
+    chunks: list[ContextChunk],
+    source_types: list[str] | None = None,
+) -> PreparedCandidates:
+    """Normalize, filter, deduplicate, and tokenize chunks into PreparedCandidates.
+
+    The prepared candidates can be cached and reused when the query, source
+    types, and chunk fingerprint are unchanged, avoiding redundant reranking.
+    """
+    if source_types and source_types != ["all"]:
+        filtered = [c for c in chunks if c.source_type in source_types]
+    else:
+        filtered = list(chunks)
+    seen: set[str] = set()
+    deduped: list[ContextChunk] = []
+    for chunk in filtered:
+        key = chunk_key(chunk)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(chunk)
+    tokens = tokenize(query, remove_stopwords=True)
+    fingerprint = _compute_fingerprint(deduped)
+    return PreparedCandidates(
+        query=query,
+        source_types=tuple(sorted(source_types)) if source_types else (),
+        chunks=tuple(deduped),
+        tokens=tuple(tokens),
+        chunk_count=len(deduped),
+        fingerprint=fingerprint,
+        token_count=len(tokens),
+    )
+
+
+def rerank_prepared(
+    prepared: PreparedCandidates,
+    top_k: int = 8,
+) -> RerankResponse:
+    """Rerank using pre-computed prepared candidates.
+
+    When the prepared fingerprint matches a previously reranked set, the
+    reranking can be skipped (caller responsibility).  This function always
+    performs the rerank; the caller should check fingerprint equality first.
+    """
+    # Cheap top-N pre-filter before expensive reranking.
+    candidates = list(prepared.chunks)
+    if len(candidates) > top_k * 2:
+        candidates = sorted(candidates, key=lambda c: c.score, reverse=True)[: top_k * 2]
+    return rerank(prepared.query, candidates, top_k)
 
 
 def rerank(query: str, chunks: list[ContextChunk], top_k: int = 8) -> RerankResponse:
@@ -56,6 +124,10 @@ def agentic_retrieve(request: AgenticRetrievalRequest, chunks: list[ContextChunk
     raw_candidates: list[ContextChunk] = []
     seen: set[str] = set()
     seen_raw: set[str] = set()
+
+    # --- Task 12: fingerprint-based rerank reuse --- #
+    _last_rerank_fingerprint = ""
+    _last_reranked_chunks: list[ContextChunk] = []
     trace: list[dict[str, object]] = [
         {
             "event": "rag.plan",
@@ -73,7 +145,16 @@ def agentic_retrieve(request: AgenticRetrievalRequest, chunks: list[ContextChunk
             if key not in seen_raw:
                 seen_raw.add(key)
                 raw_candidates.append(chunk)
-        ranked = rerank(query, scoped, request.top_k).chunks
+        # Task 12: skip redundant reranking when the candidate fingerprint
+        # hasn't changed since the previous step.
+        step_fingerprint = _compute_fingerprint(scoped)
+        if step_fingerprint == _last_rerank_fingerprint:
+            trace.append({"event": "rag.rerank_skipped", "step": step, "reason": "fingerprint_unchanged"})
+            ranked = _last_reranked_chunks
+        else:
+            ranked = rerank(query, scoped, request.top_k).chunks
+            _last_rerank_fingerprint = step_fingerprint
+            _last_reranked_chunks = ranked
         for chunk in ranked:
             key = chunk_key(chunk)
             if key not in seen:
@@ -98,8 +179,15 @@ def agentic_retrieve(request: AgenticRetrievalRequest, chunks: list[ContextChunk
         trace.append({"event": "rag.observe", "step": step, "hit_count": len(ranked), "confidence": confidence})
         if confidence >= request.min_confidence:
             break
-    reranked_hits = rerank(request.query, raw_candidates or gathered, request.top_k).chunks
-    pack = build_evidence_pack(gathered, source_types, route, graph)
+    # Task 12: final rerank — skip if the fingerprint hasn't changed since the
+    # last rerank inside the loop.
+    final_fingerprint = _compute_fingerprint(raw_candidates or gathered)
+    if final_fingerprint == _last_rerank_fingerprint and _last_rerank_fingerprint:
+        reranked_hits = _last_reranked_chunks[: request.top_k]  # Already reranked in-loop
+        trace.append({"event": "rag.final_rerank_skipped", "reason": "fingerprint_unchanged"})
+    else:
+        reranked_hits = rerank(request.query, raw_candidates or gathered, request.top_k).chunks
+    pack = build_evidence_pack(gathered, source_types, route, graph, ranked_chunks=reranked_hits)
     sufficiency = check_sufficiency(pack, source_types, request.min_confidence)
     selected_ids = set(pack.selected_chunk_ids)
     rejected_chunks = [chunk for chunk in raw_candidates if chunk_key(chunk) not in selected_ids]
@@ -271,10 +359,15 @@ def build_evidence_pack(
     required_source_types: list[str],
     route: RetrievalRoute | None = None,
     graph: GraphExpansion | None = None,
+    ranked_chunks: list[ContextChunk] | None = None,
 ) -> EvidencePack:
     route = route or RetrievalRoute()
     graph = graph or GraphExpansion()
-    ranked = rerank(" ".join(required_source_types + graph.expanded_terms), chunks, 8).chunks
+    ranked = (
+        ranked_chunks
+        if ranked_chunks is not None
+        else rerank(" ".join(required_source_types + graph.expanded_terms), chunks, 8).chunks
+    )
     source_types = sorted({chunk.source_type for chunk in ranked})
     confidence = estimate_confidence(ranked, required_source_types, graph)
     coverage = len(set(source_types).intersection(required_source_types)) / max(len(required_source_types), 1)

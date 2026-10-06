@@ -20,6 +20,7 @@ from .checkpoint.store import (
 from .config import config as _default_config
 from .harness import AllCallAllAgentHarness
 from .providers.base import LLMProvider
+from .rag_runtime_client import RAGRuntimeClient
 from .tool_layer import GoToolBridgeLayer, ToolLayer
 
 
@@ -45,10 +46,12 @@ def build_agent_harness(
     checkpoint_store: CheckpointStore | None = None,
     tool_layer: ToolLayer | None = None,
     provider: LLMProvider | None = None,
+    rag_runtime: RAGRuntimeClient | None = None,
     cfg: Any = _default_config,
 ) -> AllCallAllAgentHarness:
     return AllCallAllAgentHarness(
         checkpoint_store=checkpoint_store or build_checkpoint_store(cfg),
         tool_layer=tool_layer or build_tool_layer(cfg),
         provider=provider,
+        rag_runtime=rag_runtime,
     )

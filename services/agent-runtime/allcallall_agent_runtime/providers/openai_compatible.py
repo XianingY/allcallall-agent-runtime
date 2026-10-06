@@ -6,9 +6,16 @@ from typing import Any
 import httpx
 
 import allcallall_agent_runtime.config as _cfg
+from allcallall_agent_runtime.config import AgentRuntimeConfig
+from allcallall_agent_runtime.http_requests import (
+    build_http_client,
+    post_json_without_cookies,
+    service_request_timeout,
+)
 from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import WorkflowRequest
 from allcallall_agent_runtime.prompts import structured_prompt_for
+from allcallall_agent_runtime.deadline import current_retry_budget
 from allcallall_agent_runtime.retry import with_retry
 
 from .base import ProviderError, ProviderSynthesis
@@ -17,14 +24,21 @@ from .base import ProviderError, ProviderSynthesis
 class OpenAICompatibleProvider:
     name = "openai_compatible"
 
-    def __init__(self) -> None:
-        self.base_url = _cfg.config.openai_base_url.strip().rstrip("/")
-        self.api_key = _cfg.config.openai_api_key.strip()
-        self.model = _cfg.config.openai_model.strip()
-        self.timeout_sec = max(1, int(_cfg.config.openai_timeout_sec))
-        self.strict = _cfg.config.provider_strict
-        self.max_retries = max(0, int(_cfg.config.provider_max_retries))
-        self._http: httpx.Client | None = None
+    def __init__(
+        self,
+        *,
+        config: AgentRuntimeConfig | None = None,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        settings = config or _cfg.config
+        self._settings = settings
+        self.base_url = settings.openai_base_url.strip().rstrip("/")
+        self.api_key = settings.openai_api_key.strip()
+        self.model = settings.openai_model.strip()
+        self.timeout_sec = max(1, int(settings.openai_timeout_sec))
+        self.strict = settings.provider_strict
+        self.max_retries = max(0, int(settings.provider_max_retries))
+        self._http = http_client
         if not self.base_url or not self.model:
             message = "PY_AGENT_OPENAI_BASE_URL and PY_AGENT_OPENAI_MODEL are required for openai_compatible provider"
             if self.strict:
@@ -36,7 +50,7 @@ class OpenAICompatibleProvider:
         # (e.g. a DAG workflow invokes the provider multiple times) instead of
         # opening a fresh socket per request.
         if self._http is None:
-            self._http = httpx.Client(timeout=self.timeout_sec)
+            self._http = build_http_client(self._settings)
         return self._http
 
     def synthesize(self, request: WorkflowRequest, snippets: list[str]) -> ProviderSynthesis | None:
@@ -55,7 +69,13 @@ class OpenAICompatibleProvider:
 
         def _call() -> httpx.Response:
             try:
-                response = self._client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
+                response = post_json_without_cookies(
+                    self._client,
+                    f"{self.base_url}/chat/completions",
+                    payload=payload,
+                    headers=headers,
+                    timeout=service_request_timeout(self._settings, self.timeout_sec),
+                )
             except httpx.TimeoutException as exc:
                 raise ProviderError(
                     f"openai compatible provider timed out: {exc}",
@@ -91,12 +111,18 @@ class OpenAICompatibleProvider:
         # Retry only transient faults (timeout/network/429/5xx). Permanent
         # failures (auth/request/decode) propagate immediately. On exhaustion the
         # last ProviderError is re-raised and the harness degrades to rules.
+        # When a request-scoped deadline is bound, retries consume the shared
+        # budget so provider and workflow retries are bounded by the remaining
+        # deadline.  Without a deadline (standalone / test), legacy max_attempts
+        # behaviour is preserved.
+        budget = current_retry_budget(max_attempts=self.max_retries + 1)
         response = with_retry(
             _call,
             should_retry=lambda exc: isinstance(exc, ProviderError) and exc.retryable,
             max_attempts=self.max_retries + 1,
-            base_delay_sec=_cfg.config.retry_base_delay_sec,
-            max_delay_sec=_cfg.config.retry_max_delay_sec,
+            base_delay_sec=self._settings.retry_base_delay_sec,
+            max_delay_sec=self._settings.retry_max_delay_sec,
+            budget=budget,
             on_retry=lambda exc, attempt: registry.counter(
                 "agent_runtime_provider_retries_total",
                 "Retries performed by the LLM provider client on transient faults",

@@ -1,3 +1,4 @@
+from .payload import project_checkpoint_state, serialized_checkpoint_size
 from .mysql import (
     CheckpointExecutionBusy,
     CheckpointTransactionTooLarge,
@@ -26,4 +27,6 @@ __all__ = [
     "SQLiteCheckpointStore",
     "MemoryCheckpointStore",
     "MemoryCheckpointSaver",
+    "project_checkpoint_state",
+    "serialized_checkpoint_size",
 ]

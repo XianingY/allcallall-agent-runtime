@@ -1,13 +1,27 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+import logging
+from typing import Callable, TypeVar
 
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+
+from ..admission import AdmissionController, AdmissionRejected
 from ..api_auth import require_auth
 from ..async_tool_queue import get_default_tool_queue
 from ..config import config as runtime_config
-from ..helpers import SUPPORTED_WORKFLOWS
-from ..harness import HarnessTimeoutExceeded, get_harness
-from ..metrics import registry
+from ..deadline import ExecutionCancelled, ExecutionDeadline, set_current_deadline
+from ..helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
+from ..harness import (
+    CheckpointConflictError,
+    CheckpointVersionConflictError,
+    HarnessTimeoutExceeded,
+    get_harness,
+)
+from ..metrics import (
+    cancelled_total,
+    registry,
+    workflow_runs_total,
+)
 from ..models import (
     AgentRunRequest,
     AgentRunResponse,
@@ -15,38 +29,155 @@ from ..models import (
     MeetingBriefResponse,
     WorkflowRequest,
     WorkflowResponse,
+    WorkflowResumeRequest,
 )
 from ..skill_registry import build_production_registry
 
+logger = logging.getLogger(__name__)
+
+_R = TypeVar("_R")
 
 router = APIRouter()
 
 
-def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
-    """Run the meeting brief workflow."""
-    registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
+def _parse_deadline_from_headers(request: Request) -> ExecutionDeadline:
+    """Parse the ``X-AllCallAll-Deadline`` header into an ExecutionDeadline.
+
+    The Go runtime sends ``X-AllCallAll-Deadline`` as an RFC3339Nano UTC
+    timestamp and ``X-AllCallAll-Attempt`` as the attempt counter (currently
+    unused by the Python runtime but logged for observability).  When the
+    deadline header is absent or malformed, the local
+    ``request_timeout_seconds`` default is used.
+    """
+    deadline_header = request.headers.get("x-allcallall-deadline")
+    attempt_header = request.headers.get("x-allcallall-attempt")
+    default_seconds = float(runtime_config.request_timeout_seconds) if runtime_config.request_timeout_seconds > 0 else 120.0
+    deadline = ExecutionDeadline.from_header(deadline_header, default_seconds=default_seconds)
+    if attempt_header:
+        logger.debug("execution attempt=%s deadline_remaining=%.1fs", attempt_header, deadline.remaining_seconds())
+    return deadline
+
+
+def _get_admission(request: Request) -> AdmissionController | None:
+    """Retrieve the admission controller from application state.
+
+    Returns ``None`` when the lifespan has not been initialized (e.g. in
+    lightweight tests that construct the app without entering the lifespan
+    context manager), in which case admission control is bypassed.
+    """
+    return getattr(request.app.state, "admission", None)
+
+
+def _run_with_admission(
+    request: Request,
+    run_func: Callable[..., _R],
+    run_request: object,
+) -> _R:
+    """Run a workflow through admission control with deadline propagation.
+
+    Acquires an admission lease, increments ``workflow_runs_total`` exactly
+    once, runs the workflow, and releases the lease in ``finally``.  Maps
+    admission rejection and timeout to HTTP errors.
+
+    When the admission controller is not available (e.g. in tests that bypass
+    the lifespan), the workflow runs without admission control but still
+    increments the counter and handles timeouts.
+
+    On HTTP timeout (``HarnessTimeoutExceeded``), requests cooperative
+    cancellation and returns 504.  The admission lease and inflight gauge
+    remain occupied until the graph future exits (the lease is released in
+    the ``finally`` block, which runs after the future completes or the grace
+    period expires).
+    """
+    admission = _get_admission(request)
+    deadline = _parse_deadline_from_headers(request)
+
+    if admission is None:
+        workflow_runs_total.inc()
+        set_current_deadline(deadline)
+        try:
+            return run_func(run_request)
+        except CheckpointVersionConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "checkpoint_version_conflict", "reason": str(exc)},
+            ) from None
+        except CheckpointConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "checkpoint_conflict", "reason": str(exc)},
+            ) from None
+        except HarnessTimeoutExceeded:
+            # Cancellation is requested by the harness in _invoke_graph;
+            # do not double-count cancel_requested_total here.
+            raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+        except ExecutionCancelled as exc:
+            cancelled_total.labels(reason=exc.reason).inc()
+            raise HTTPException(status_code=504, detail=f"Workflow cancelled: {exc.reason}") from None
+        finally:
+            set_current_deadline(None)
+
+    org_id = getattr(run_request, "organization_id", 0)
     try:
-        return get_harness().run_meeting_brief(request)
-    except HarnessTimeoutExceeded:
-        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+        lease = admission.acquire(organization_id=org_id)
+    except AdmissionRejected as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "runtime_overloaded", "reason": exc.reason},
+            headers={"Retry-After": str(int(exc.retry_after_seconds))},
+        ) from None
+    try:
+        workflow_runs_total.inc()
+        set_current_deadline(deadline)
+        try:
+            return run_func(run_request)
+        except CheckpointVersionConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "checkpoint_version_conflict", "reason": str(exc)},
+            ) from None
+        except CheckpointConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "checkpoint_conflict", "reason": str(exc)},
+            ) from None
+        except HarnessTimeoutExceeded:
+            # Cancellation is requested by the harness in _invoke_graph;
+            # do not double-count cancel_requested_total here.
+            raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+        except ExecutionCancelled as exc:
+            cancelled_total.labels(reason=exc.reason).inc()
+            raise HTTPException(status_code=504, detail=f"Workflow cancelled: {exc.reason}") from None
+        finally:
+            set_current_deadline(None)
+    finally:
+        # The admission lease is released only after the graph future exits,
+        # keeping the inflight capacity occupied until the work is truly done.
+        lease.close()
+
+
+def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
+    """Run the meeting brief workflow (no metrics or timeout handling — delegated to _run_with_admission)."""
+    return get_harness().run_meeting_brief(request)
 
 
 def run_react_agent(request: AgentRunRequest) -> AgentRunResponse:
-    """Run the react agent workflow."""
-    registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
-    try:
-        return get_harness().run_react_agent(request)
-    except HarnessTimeoutExceeded:
-        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+    """Run the react agent workflow (no metrics or timeout handling — delegated to _run_with_admission)."""
+    return get_harness().run_react_agent(request)
 
 
 def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
-    """Run a workflow with the given request."""
-    registry.counter("agent_runtime_workflow_runs_total", "Total workflow runs accepted by the agent runtime").inc()
-    try:
-        return get_harness().run_workflow(request)
-    except HarnessTimeoutExceeded:
-        raise HTTPException(status_code=504, detail="Workflow run exceeded the request timeout") from None
+    """Run a workflow (no metrics or timeout handling — delegated to _run_with_admission)."""
+    return get_harness().run_workflow(request)
+
+
+def resume_workflow(request: WorkflowResumeRequest) -> WorkflowResponse:
+    return get_harness().resume_workflow(request)
+
+
+def resume_agent(request: WorkflowResumeRequest) -> WorkflowResponse:
+    return get_harness().resume_agent(request)
+
 
 @router.get("/health")
 def health() -> dict[str, str]:
@@ -61,6 +192,7 @@ def ready() -> dict[str, object]:
     # downstream health can cause cascading failures and flap during incidents.
     return {
         "status": "ready",
+        "deployment_mode": runtime_config.deployment_mode,
         "provider": runtime_config.provider,
         "provider_strict": runtime_config.provider_strict,
         "tool_bridge_configured": bool(runtime_config.tool_bridge_base_url and runtime_config.tool_bridge_token),
@@ -84,6 +216,7 @@ def workflows() -> dict[str, list[str]]:
 def capabilities() -> dict[str, object]:
     return {
         "runtime": "python_langgraph",
+        "deployment_mode": runtime_config.deployment_mode,
         "harness": "allcallall_v1",
         "agents": ["react_general", "searcher", "memory_agent", "summarizer", "risk_guardian"],
         "workflows": sorted(SUPPORTED_WORKFLOWS),
@@ -98,26 +231,49 @@ def capabilities() -> dict[str, object]:
         "memory": ["reflection", "approval_gated_upsert"],
         "write_tools": "proposal_only",
         "tool_queue": {
-            "mode": "async_after_approval",
-            "retry": "bounded",
-            "dead_letter": True,
+            "enabled": runtime_config.enable_tool_queue,
+            **(
+                {
+                    "mode": "async_after_approval",
+                    "retry": "bounded",
+                    "dead_letter": True,
+                }
+                if runtime_config.deployment_mode == "single_process"
+                else {
+                    "mode": "go_outbox",
+                    "retry": "go_durable_outbox",
+                    "dead_letter": "go_durable_outbox",
+                }
+            ),
         },
     }
 
 
 @router.post("/v1/agents/react/run", response_model=AgentRunResponse, dependencies=[Depends(require_auth)])
-def react_run(request: AgentRunRequest) -> AgentRunResponse:
-    return run_react_agent(request)
+def react_run(request: AgentRunRequest, fastapi_request: Request) -> AgentRunResponse:
+    return _run_with_admission(fastapi_request, run_react_agent, request)
 
 
 @router.post("/v1/workflows/meeting-brief/run", dependencies=[Depends(require_auth)])
-def meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
-    return run_meeting_brief(request)
+def meeting_brief(request: MeetingBriefRequest, fastapi_request: Request) -> MeetingBriefResponse:
+    return _run_with_admission(fastapi_request, run_meeting_brief, request)
 
 
 @router.post("/v1/workflows/{preset}/run", response_model=WorkflowResponse, dependencies=[Depends(require_auth)])
-def workflow_run(preset: str, request: WorkflowRequest) -> WorkflowResponse:
-    return run_workflow(request.model_copy(update={"preset": preset}))
+def workflow_run(preset: str, request: WorkflowRequest, fastapi_request: Request) -> WorkflowResponse:
+    return _run_with_admission(fastapi_request, run_workflow, request.model_copy(update={"preset": preset}))
+
+
+@router.post("/v1/workflows/{preset}/resume", response_model=WorkflowResponse, dependencies=[Depends(require_auth)])
+def workflow_resume(preset: str, request: WorkflowResumeRequest, fastapi_request: Request) -> WorkflowResponse:
+    if normalize_workflow_preset(preset) not in SUPPORTED_WORKFLOWS:
+        raise HTTPException(status_code=404, detail="unsupported workflow preset")
+    return _run_with_admission(fastapi_request, resume_workflow, request)
+
+
+@router.post("/v1/agents/react/resume", response_model=WorkflowResponse, dependencies=[Depends(require_auth)])
+def react_resume(request: WorkflowResumeRequest, fastapi_request: Request) -> WorkflowResponse:
+    return _run_with_admission(fastapi_request, resume_agent, request)
 
 
 @router.get("/v1/tool-queue/status", dependencies=[Depends(require_auth)])
@@ -149,11 +305,11 @@ def list_skills() -> dict[str, object]:
     plan and marked approval-required. Returns an empty list when skills are
     disabled or no manifest is configured.
     """
-    registry = build_production_registry(runtime_config.skill_manifest_path or None)
+    reg = build_production_registry(runtime_config.skill_manifest_path or None)
     skills: list[dict[str, object]] = []
-    for skill in registry.all():
+    for skill in reg.all():
         try:
-            resolved = registry.resolve(skill.name)
+            resolved = reg.resolve(skill.name)
         except KeyError:
             continue
         skills.append(
