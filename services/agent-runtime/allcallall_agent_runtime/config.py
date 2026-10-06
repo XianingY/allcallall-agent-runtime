@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
@@ -116,7 +116,21 @@ class AgentRuntimeConfig(BaseSettings):
     # the workflow run and execute them in the background via the Go tool bridge.
     # Off by default — when disabled, write proposals are returned to the caller
     # (legacy behavior) and nothing is enqueued.
+    # The queue is process-local and therefore only valid for single-process
+    # development/test deployments; multi-replica production leaves durable write
+    # execution to the Go outbox.
+    deployment_mode: Literal["single_process", "multi_replica"] = "multi_replica"
     enable_tool_queue: bool = False
+
+    @model_validator(mode="after")
+    def _validate_tool_queue_deployment(self) -> Self:
+        if self.enable_tool_queue and self.deployment_mode == "multi_replica":
+            raise ValueError(
+                "PY_AGENT_ENABLE_TOOL_QUEUE=true requires "
+                "PY_AGENT_DEPLOYMENT_MODE=single_process; multi-replica runtimes "
+                "must leave durable write execution in Go"
+            )
+        return self
 
     # Skill registry hardening (Module 5): load skills from an explicit manifest
     # (listing allowed files + expected risk_level) instead of trusting
@@ -176,3 +190,13 @@ def effective_max_active_runs(cfg: AgentRuntimeConfig) -> int:
 
 
 config = AgentRuntimeConfig()
+
+
+def validate_runtime_config(config: AgentRuntimeConfig) -> None:
+    """Reject unsafe process-local tool-queue deployment combinations."""
+    if config.enable_tool_queue and config.deployment_mode == "multi_replica":
+        raise ValueError(
+            "PY_AGENT_ENABLE_TOOL_QUEUE=true requires "
+            "PY_AGENT_DEPLOYMENT_MODE=single_process; multi-replica runtimes "
+            "must leave durable write execution in Go"
+        )

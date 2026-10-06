@@ -12,7 +12,7 @@ from allcallall_agent_runtime.api.app import _lifespan, create_app
 from allcallall_agent_runtime.harness import AllCallAllAgentHarness, get_harness
 from allcallall_agent_runtime.harness import shutdown_invoke_executor
 from allcallall_agent_runtime.main import app
-from allcallall_agent_runtime.models import AgentRunRequest, WorkflowResponse
+from allcallall_agent_runtime.models import AgentRunRequest, ToolProposal, WorkflowRequest, WorkflowResponse
 
 
 EXPECTED_ROUTES = {
@@ -124,3 +124,75 @@ def test_app_lifespan_cleans_executor_when_client_startup_fails() -> None:
             shutdown_spy.assert_called_once_with(wait=False)
     finally:
         shutdown_invoke_executor(wait=False)
+
+
+def test_app_lifespan_rejects_tool_queue_in_multi_replica_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_app = create_app()
+
+    async def enter_lifespan() -> None:
+        async with _lifespan(created_app):
+            pass
+
+    monkeypatch.setattr(
+        "allcallall_agent_runtime.api.app.runtime_config.enable_tool_queue",
+        True,
+    )
+
+    try:
+        with pytest.raises(ValueError, match="PY_AGENT_DEPLOYMENT_MODE=single_process"):
+            asyncio.run(enter_lifespan())
+    finally:
+        shutdown_invoke_executor(wait=False)
+
+
+def test_ready_and_capabilities_report_effective_deployment_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "allcallall_agent_runtime.api.routes.runtime_config.deployment_mode",
+        "single_process",
+        raising=False,
+    )
+
+    client = TestClient(app)
+
+    assert client.get("/ready").json()["deployment_mode"] == "single_process"
+    assert client.get("/v1/capabilities").json()["deployment_mode"] == "single_process"
+
+
+def test_workflow_response_still_returns_approved_proposals_in_multi_replica_mode() -> None:
+    class ProposalHarness:
+        def run_workflow(self, request: WorkflowRequest) -> WorkflowResponse:
+            return WorkflowResponse(
+                status="requires_action",
+                proposed_tool_calls=[
+                    ToolProposal(
+                        tool_name="write_conversation_message",
+                        arguments={"body": "approved"},
+                        idempotency_key="go-owns-this-write",
+                        approval_required=True,
+                    )
+                ],
+            )
+
+    created_app = create_app()
+    with patch("allcallall_agent_runtime.api.routes.get_harness", return_value=ProposalHarness()):
+        response = TestClient(created_app).post(
+            "/v1/workflows/risk_review/run",
+            json={
+                "organization_id": 1,
+                "user_id": 2,
+                "conversation_id": 3,
+                "workflow_run_id": 4,
+                "goal": "Generate an approved write",
+            },
+        )
+
+    assert response.status_code == 200
+    proposals = response.json()["proposed_tool_calls"]
+    assert len(proposals) == 1
+    assert proposals[0]["tool_name"] == "write_conversation_message"
+    assert proposals[0]["approval_required"] is True
+    assert proposals[0]["idempotency_key"] == "go-owns-this-write"

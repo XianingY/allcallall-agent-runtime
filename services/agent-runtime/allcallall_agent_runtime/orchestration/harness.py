@@ -8,7 +8,7 @@ from collections import defaultdict
 from threading import Lock
 from typing import Any
 
-from ..config import config as app_config
+from ..config import config as app_config, validate_runtime_config
 from ..checkpoint.store import (
     CheckpointStore,
     MemoryCheckpointStore,
@@ -210,9 +210,10 @@ class AllCallAllAgentHarness:
         self.tool_layer = tool_layer or GoToolBridgeLayer()
         self._provider = provider
         self._rag_runtime = rag_runtime
-        # When the async tool queue is enabled, approved write proposals produced
-        # by a run are enqueued here (and executed by the background worker).
-        # Otherwise the legacy behavior is preserved (proposals returned to caller).
+        # The process-local queue is only constructed for explicit single-process
+        # development/test deployments. Multi-replica runtimes keep proposals in
+        # the response so the durable Go outbox owns write execution.
+        validate_runtime_config(app_config)
         self._tool_queue = tool_queue or (get_default_tool_queue() if app_config.enable_tool_queue else None)
         # Optional injected badcase store; lazily built from config on first
         # capture so a harness constructed without one is still cheap.

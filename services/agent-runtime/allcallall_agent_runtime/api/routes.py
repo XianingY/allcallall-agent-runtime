@@ -158,6 +158,7 @@ def ready() -> dict[str, object]:
     # downstream health can cause cascading failures and flap during incidents.
     return {
         "status": "ready",
+        "deployment_mode": runtime_config.deployment_mode,
         "provider": runtime_config.provider,
         "provider_strict": runtime_config.provider_strict,
         "tool_bridge_configured": bool(runtime_config.tool_bridge_base_url and runtime_config.tool_bridge_token),
@@ -181,6 +182,7 @@ def workflows() -> dict[str, list[str]]:
 def capabilities() -> dict[str, object]:
     return {
         "runtime": "python_langgraph",
+        "deployment_mode": runtime_config.deployment_mode,
         "harness": "allcallall_v1",
         "agents": ["react_general", "searcher", "memory_agent", "summarizer", "risk_guardian"],
         "workflows": sorted(SUPPORTED_WORKFLOWS),

@@ -12,7 +12,7 @@ from ..admission import AdmissionController
 from ..async_tool_queue import QueuedTask, ToolQueueWorker, get_default_tool_queue
 from ..clients import RuntimeClients, build_runtime_clients
 from ..config import config as runtime_config
-from ..config import effective_max_active_runs
+from ..config import effective_max_active_runs, validate_runtime_config
 from ..factory import build_agent_harness
 from ..harness import reset_harness, set_harness, set_invoke_executor, shutdown_invoke_executor
 from ..tool_bridge import GoToolBridge
@@ -41,6 +41,7 @@ def _tool_queue_executor(task: QueuedTask) -> None:
 @asynccontextmanager
 async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
     """Manage admission, executor, client, and worker lifecycle."""
+    validate_runtime_config(runtime_config)
     effective_active = effective_max_active_runs(runtime_config)
     application.state.admission = AdmissionController(
         max_active=effective_active,
