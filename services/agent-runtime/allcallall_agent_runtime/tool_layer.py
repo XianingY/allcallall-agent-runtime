@@ -12,6 +12,9 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+import httpx
+
+from .config import AgentRuntimeConfig
 from .models import WorkflowRequest
 from .tool_bridge import GoToolBridge, ToolObservation
 
@@ -43,8 +46,17 @@ class ToolLayer(Protocol):
 class GoToolBridgeLayer:
     """Production tool layer: constructs the real Go backend bridge."""
 
+    def __init__(
+        self,
+        *,
+        config: AgentRuntimeConfig | None = None,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        self._config = config
+        self._http_client = http_client
+
     def build(self) -> GoToolBridge:
-        return GoToolBridge()
+        return GoToolBridge(config=self._config, http_client=self._http_client)
 
 
 @dataclass

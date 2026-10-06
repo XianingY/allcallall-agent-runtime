@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 import allcallall_agent_runtime.config as _cfg
+from allcallall_agent_runtime.config import AgentRuntimeConfig
 from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import ContextChunk, RetrievalPlan, RetrievalPlanStep, WorkflowRequest
 from allcallall_agent_runtime.deadline import current_retry_budget
@@ -27,11 +28,18 @@ class RAGRuntimeObservation:
 
 
 class RAGRuntimeClient:
-    def __init__(self) -> None:
-        self.base_url = _cfg.config.rag_runtime_base_url.strip().rstrip("/")
-        self.timeout_sec = max(1, int(_cfg.config.rag_runtime_timeout_sec))
-        self.max_retries = max(0, int(_cfg.config.rag_runtime_max_retries))
-        self._http: httpx.Client | None = None
+    def __init__(
+        self,
+        *,
+        config: AgentRuntimeConfig | None = None,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        settings = config or _cfg.config
+        self._settings = settings
+        self.base_url = settings.rag_runtime_base_url.strip().rstrip("/")
+        self.timeout_sec = max(1, int(settings.rag_runtime_timeout_sec))
+        self.max_retries = max(0, int(settings.rag_runtime_max_retries))
+        self._http = http_client
 
     @property
     def _client(self) -> httpx.Client:
@@ -85,8 +93,8 @@ class RAGRuntimeClient:
             _call,
             should_retry=lambda exc: isinstance(exc, RAGRuntimeError) and exc.retryable,
             max_attempts=self.max_retries + 1,
-            base_delay_sec=_cfg.config.retry_base_delay_sec,
-            max_delay_sec=_cfg.config.retry_max_delay_sec,
+            base_delay_sec=self._settings.retry_base_delay_sec,
+            max_delay_sec=self._settings.retry_max_delay_sec,
             budget=budget,
             on_retry=lambda exc, attempt: registry.counter(
                 "agent_runtime_rag_retries_total",

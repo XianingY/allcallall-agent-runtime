@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, FastAPI, Response
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
+from fastapi import APIRouter, Depends, FastAPI, Request, Response
+
+from .clients import RAGClients, build_rag_clients
+from .config import config as rag_config
 from .metrics import metrics
 from .models import (
     AgenticRetrievalRequest,
@@ -18,6 +23,12 @@ from .retrieval import agentic_retrieve, filter_chunks, grounding_check, rerank
 
 
 router = APIRouter()
+
+
+def _get_clients(request: Request) -> RAGClients:
+    """Return the process-owned client bundle from application state."""
+    clients: RAGClients = request.app.state.clients
+    return clients
 
 
 @router.get("/health")
@@ -55,9 +66,12 @@ def prometheus_metrics() -> Response:
 
 
 @router.post("/v1/retrieval/query", response_model=RetrievalQueryResponse)
-def retrieval_query(request: RetrievalQueryRequest) -> RetrievalQueryResponse:
+def retrieval_query(
+    request: RetrievalQueryRequest,
+    clients: RAGClients = Depends(_get_clients),
+) -> RetrievalQueryResponse:
     metrics.inc("rag_runtime_query_total")
-    chunks, source = select_retrieval_chunks(request)
+    chunks, source = select_retrieval_chunks(request, clients=clients)
     scoped = filter_chunks(chunks, request.source_types)[: max(1, request.top_k)]
     return RetrievalQueryResponse(query=request.query, chunks=scoped, count=len(scoped), source=source)
 
@@ -69,9 +83,12 @@ def retrieval_rerank(request: RerankRequest) -> RerankResponse:
 
 
 @router.post("/v1/retrieval/agentic", response_model=AgenticRetrievalResponse)
-def retrieval_agentic(request: AgenticRetrievalRequest) -> AgenticRetrievalResponse:
+def retrieval_agentic(
+    request: AgenticRetrievalRequest,
+    clients: RAGClients = Depends(_get_clients),
+) -> AgenticRetrievalResponse:
     metrics.inc("rag_runtime_agentic_total")
-    chunks, source = select_retrieval_chunks(request)
+    chunks, source = select_retrieval_chunks(request, clients=clients)
     response = agentic_retrieve(request, chunks)
     return response.model_copy(update={"vector_store": source})
 
@@ -84,6 +101,17 @@ def grounding(request: GroundingCheckRequest) -> GroundingCheckResponse:
 
 def create_app() -> FastAPI:
     """Create the RAG FastAPI application with its public routes."""
-    application = FastAPI(title="AllCallAll RAG Runtime", version="0.1.0")
+    application = FastAPI(title="AllCallAll RAG Runtime", version="0.1.0", lifespan=_lifespan)
     application.include_router(router)
     return application
+
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Own the process-lifetime RAG client bundle."""
+    clients = build_rag_clients(rag_config)
+    application.state.clients = clients
+    try:
+        yield
+    finally:
+        clients.close()

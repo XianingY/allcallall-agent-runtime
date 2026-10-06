@@ -55,7 +55,7 @@ def retrieval_loop(state: GraphState) -> GraphState:
         return {"trace_events": trace, "retrieval_attempts": [], "agentic_context_chunks": []}
 
     bridge = state["tool_bridge"]
-    rag_runtime = RAGRuntimeClient()
+    rag_runtime = state.get("rag_runtime") or RAGRuntimeClient()
     attempts: list[RetrievalAttempt] = []
     gathered: list[ContextChunk] = []
     seen_chunks: set[str] = set()

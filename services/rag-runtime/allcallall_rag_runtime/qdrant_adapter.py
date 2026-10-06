@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from .config import config
+from .config import RAGRuntimeConfig, config as default_config
 from .models import ContextChunk, RetrievalQueryRequest
 
 
@@ -17,14 +17,22 @@ class QdrantAdapterError(RuntimeError):
 class QdrantAdapter:
     """HTTP adapter for Qdrant without making it a production data source of truth."""
 
-    def __init__(self) -> None:
-        self.url = config.qdrant_url.rstrip("/")
-        self.collection = config.qdrant_collection
-        self.api_key = config.qdrant_api_key
-        self.timeout = config.qdrant_timeout_sec
+    def __init__(
+        self,
+        *,
+        config: RAGRuntimeConfig | None = None,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        settings = config or default_config
+        self._settings = settings
+        self.url = settings.qdrant_url.rstrip("/")
+        self.collection = settings.qdrant_collection
+        self.api_key = settings.qdrant_api_key
+        self.timeout = settings.qdrant_timeout_sec
+        self._http = http_client
 
     def configured(self) -> bool:
-        return config.vector_store == "qdrant" and bool(self.url and self.collection)
+        return self._settings.vector_store == "qdrant" and bool(self.url and self.collection)
 
     def query(self, request: RetrievalQueryRequest) -> list[ContextChunk]:
         if not self.configured():
@@ -32,12 +40,19 @@ class QdrantAdapter:
         payload = self._search_payload(request) if request.query_vector else self._scroll_payload(request)
         endpoint = "search" if request.query_vector else "scroll"
         try:
-            response = httpx.post(
-                f"{self.url}/collections/{self.collection}/points/{endpoint}",
-                json=payload,
-                headers=self._headers(),
-                timeout=self.timeout,
-            )
+            if self._http is None:
+                with httpx.Client(timeout=self.timeout) as client:
+                    response = client.post(
+                        f"{self.url}/collections/{self.collection}/points/{endpoint}",
+                        json=payload,
+                        headers=self._headers(),
+                    )
+            else:
+                response = self._http.post(
+                    f"{self.url}/collections/{self.collection}/points/{endpoint}",
+                    json=payload,
+                    headers=self._headers(),
+                )
         except httpx.HTTPError as exc:
             raise QdrantAdapterError(str(exc)) from exc
         if response.status_code >= 400:

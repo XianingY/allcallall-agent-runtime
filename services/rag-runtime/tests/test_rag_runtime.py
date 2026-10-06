@@ -208,15 +208,12 @@ def test_qdrant_adapter_parses_vector_search(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(config, "qdrant_url", "http://qdrant")
     monkeypatch.setattr(config, "qdrant_collection", "chunks")
 
-    def fake_post(
-        url: str,
-        json: dict[str, object],
-        headers: dict[str, str],
-        timeout: float,
-    ) -> httpx.Response:
-        assert url == "http://qdrant/collections/chunks/points/search"
-        assert json["vector"] == [0.1, 0.2]
-        assert timeout == config.qdrant_timeout_sec
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "http://qdrant/collections/chunks/points/search"
+        import json as _json
+
+        body = _json.loads(request.content)
+        assert body["vector"] == [0.1, 0.2]
         return httpx.Response(
             200,
             json={
@@ -236,11 +233,17 @@ def test_qdrant_adapter_parses_vector_search(monkeypatch: pytest.MonkeyPatch) ->
             },
         )
 
-    monkeypatch.setattr(httpx, "post", fake_post)
-
-    chunks = QdrantAdapter().query(
-        AgenticRetrievalRequest(query="policy", query_vector=[0.1, 0.2], top_k=3)
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        timeout=config.qdrant_timeout_sec,
     )
+    adapter = QdrantAdapter(http_client=http_client)
+    try:
+        chunks = adapter.query(
+            AgenticRetrievalRequest(query="policy", query_vector=[0.1, 0.2], top_k=3)
+        )
+    finally:
+        http_client.close()
 
     assert chunks[0].chunk_id == "qdrant-1"
     assert chunks[0].retrieval_mode == "qdrant_vector"

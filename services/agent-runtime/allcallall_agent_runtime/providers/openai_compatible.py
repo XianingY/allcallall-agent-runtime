@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 import allcallall_agent_runtime.config as _cfg
+from allcallall_agent_runtime.config import AgentRuntimeConfig
 from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import WorkflowRequest
 from allcallall_agent_runtime.prompts import structured_prompt_for
@@ -18,14 +19,21 @@ from .base import ProviderError, ProviderSynthesis
 class OpenAICompatibleProvider:
     name = "openai_compatible"
 
-    def __init__(self) -> None:
-        self.base_url = _cfg.config.openai_base_url.strip().rstrip("/")
-        self.api_key = _cfg.config.openai_api_key.strip()
-        self.model = _cfg.config.openai_model.strip()
-        self.timeout_sec = max(1, int(_cfg.config.openai_timeout_sec))
-        self.strict = _cfg.config.provider_strict
-        self.max_retries = max(0, int(_cfg.config.provider_max_retries))
-        self._http: httpx.Client | None = None
+    def __init__(
+        self,
+        *,
+        config: AgentRuntimeConfig | None = None,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        settings = config or _cfg.config
+        self._settings = settings
+        self.base_url = settings.openai_base_url.strip().rstrip("/")
+        self.api_key = settings.openai_api_key.strip()
+        self.model = settings.openai_model.strip()
+        self.timeout_sec = max(1, int(settings.openai_timeout_sec))
+        self.strict = settings.provider_strict
+        self.max_retries = max(0, int(settings.provider_max_retries))
+        self._http = http_client
         if not self.base_url or not self.model:
             message = "PY_AGENT_OPENAI_BASE_URL and PY_AGENT_OPENAI_MODEL are required for openai_compatible provider"
             if self.strict:
@@ -101,8 +109,8 @@ class OpenAICompatibleProvider:
             _call,
             should_retry=lambda exc: isinstance(exc, ProviderError) and exc.retryable,
             max_attempts=self.max_retries + 1,
-            base_delay_sec=_cfg.config.retry_base_delay_sec,
-            max_delay_sec=_cfg.config.retry_max_delay_sec,
+            base_delay_sec=self._settings.retry_base_delay_sec,
+            max_delay_sec=self._settings.retry_max_delay_sec,
             budget=budget,
             on_retry=lambda exc, attempt: registry.counter(
                 "agent_runtime_provider_retries_total",

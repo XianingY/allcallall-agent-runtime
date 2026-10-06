@@ -29,6 +29,15 @@ class RAGRuntimeConfig(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_timeout_sec: float = 5.0
 
+    # Outbound HTTP connection pool (process-lifetime client bundle)
+    http_max_connections: int = 20
+    http_max_keepalive_connections: int = 10
+    http_keepalive_expiry_sec: float = 30.0
+    http_connect_timeout_sec: float = 5.0
+    http_read_timeout_sec: float = 30.0
+    http_write_timeout_sec: float = 10.0
+    http_pool_timeout_sec: float = 10.0
+
     model_config = {"env_prefix": "PY_RAG_"}
 
 

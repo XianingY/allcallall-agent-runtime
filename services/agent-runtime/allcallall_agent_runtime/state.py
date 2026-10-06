@@ -53,6 +53,7 @@ class GraphState(TypedDict, total=False):
     request: WorkflowRequest
     provider: Any  # LLMProvider
     tool_bridge: Any  # GoToolBridge
+    rag_runtime: Any  # RAGRuntimeClient
     trace_events: list[TraceEvent]
     role_results: list[RoleResult]
     agentic_rag_enabled: bool
@@ -92,4 +93,3 @@ class GraphState(TypedDict, total=False):
     skill_instructions: str
     # --- Module 4: retrieved durable long-term memory (opt-in) --- #
     long_term_memory: list[str]
-

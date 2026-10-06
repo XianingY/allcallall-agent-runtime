@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 import allcallall_agent_runtime.config as _cfg
+from allcallall_agent_runtime.config import AgentRuntimeConfig
 from .metrics import registry
 from .models import ContextChunk, WorkflowRequest
 from .deadline import current_retry_budget
@@ -28,12 +29,19 @@ class ToolObservation:
 
 
 class GoToolBridge:
-    def __init__(self) -> None:
-        self.base_url = _cfg.config.tool_bridge_base_url.strip().rstrip("/")
-        self.token = _cfg.config.tool_bridge_token.strip()
-        self.timeout_sec = max(1, int(_cfg.config.tool_bridge_timeout_sec))
-        self.max_retries = max(0, int(_cfg.config.tool_bridge_max_retries))
-        self._http: httpx.Client | None = None
+    def __init__(
+        self,
+        *,
+        config: AgentRuntimeConfig | None = None,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        settings = config or _cfg.config
+        self._settings = settings
+        self.base_url = settings.tool_bridge_base_url.strip().rstrip("/")
+        self.token = settings.tool_bridge_token.strip()
+        self.timeout_sec = max(1, int(settings.tool_bridge_timeout_sec))
+        self.max_retries = max(0, int(settings.tool_bridge_max_retries))
+        self._http = http_client
 
     @property
     def _client(self) -> httpx.Client:
@@ -92,8 +100,8 @@ class GoToolBridge:
             _call,
             should_retry=lambda exc: isinstance(exc, ToolBridgeError) and exc.retryable,
             max_attempts=self.max_retries + 1,
-            base_delay_sec=_cfg.config.retry_base_delay_sec,
-            max_delay_sec=_cfg.config.retry_max_delay_sec,
+            base_delay_sec=self._settings.retry_base_delay_sec,
+            max_delay_sec=self._settings.retry_max_delay_sec,
             budget=budget,
             on_retry=lambda exc, attempt: registry.counter(
                 "agent_runtime_tool_bridge_retries_total",

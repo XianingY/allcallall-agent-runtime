@@ -20,6 +20,7 @@ from ..context_compression import InMemoryLongTermMemory
 from ..dag import build_workflow_graph
 from ..helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
 from ..providers.base import LLMProvider
+from ..rag_runtime_client import RAGRuntimeClient
 from ..skill_registry import build_production_registry
 from ..tool_layer import GoToolBridgeLayer, ToolLayer
 from ..async_tool_queue import AsyncToolQueue, get_default_tool_queue, priority_to_int
@@ -128,6 +129,20 @@ _default_harness: AllCallAllAgentHarness | None = None
 _default_harness_lock = Lock()
 
 
+def set_harness(harness: AllCallAllAgentHarness) -> None:
+    """Replace the process-wide harness (used by the application lifespan)."""
+    global _default_harness
+    with _default_harness_lock:
+        _default_harness = harness
+
+
+def reset_harness() -> None:
+    """Clear a lifespan-owned harness so shutdown does not retain clients."""
+    global _default_harness
+    with _default_harness_lock:
+        _default_harness = None
+
+
 def get_workflow_graph() -> Any:
     """Return a process-wide compiled workflow graph (production defaults).
 
@@ -187,12 +202,14 @@ class AllCallAllAgentHarness:
         checkpoint_store: CheckpointStore | None = None,
         tool_layer: ToolLayer | None = None,
         provider: LLMProvider | None = None,
+        rag_runtime: RAGRuntimeClient | None = None,
         tool_queue: AsyncToolQueue | None = None,
         badcase_store: BadcaseStore | None = None,
     ) -> None:
         self.checkpoint_store = checkpoint_store or _default_checkpoint_store()
         self.tool_layer = tool_layer or GoToolBridgeLayer()
         self._provider = provider
+        self._rag_runtime = rag_runtime
         # When the async tool queue is enabled, approved write proposals produced
         # by a run are enqueued here (and executed by the background worker).
         # Otherwise the legacy behavior is preserved (proposals returned to caller).
@@ -316,6 +333,7 @@ class AllCallAllAgentHarness:
                     "request": request,
                     "provider": provider,
                     "tool_bridge": self.tool_layer.build(),
+                    "rag_runtime": self._rag_runtime or RAGRuntimeClient(),
                     "trace_events": trace_events,
                     "role_results": [],
                     "skill_instructions": skill_instructions,

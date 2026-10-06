@@ -45,6 +45,15 @@ class AgentRuntimeConfig(BaseSettings):
     retry_base_delay_sec: float = 0.5
     retry_max_delay_sec: float = 8.0
 
+    # Outbound HTTP connection pool (process-lifetime client bundle)
+    http_max_connections: int = 20
+    http_max_keepalive_connections: int = 10
+    http_keepalive_expiry_sec: float = 30.0
+    http_connect_timeout_sec: float = 5.0
+    http_read_timeout_sec: float = 30.0
+    http_write_timeout_sec: float = 10.0
+    http_pool_timeout_sec: float = 10.0
+
     # Durable checkpoints (backend selection; decoupled from the harness)
     checkpoint_store: str = ""  # "" (auto) | "none" | "mysql" | "sqlite" | "memory"
     checkpoint_mysql_enabled: bool = False
