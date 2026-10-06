@@ -2,6 +2,11 @@ name: Publish Images
 
 # Only publish on semantic version tags (v*.*.*). No more :latest pushes and
 # every image is scanned with Trivy (HIGH,CRITICAL) before it is pushed.
+# Mirrors the main repo's release.yml: buildx + Trivy + SBOM + keyless cosign,
+# so every published runtime image has the same provenance guarantees as the
+# Go/web images. sandbox-runner is included so the Helm chart's sandboxRunner
+# image reference (ghcr.io/xianingy/allcallall-agent-runtime/sandbox-runner)
+# is actually produced.
 on:
   push:
     tags:
@@ -10,17 +15,29 @@ on:
 permissions:
   contents: read
   packages: write
+  # Required for keyless image signing: cosign exchanges the workflow's OIDC
+  # token for a short-lived certificate, so no signing key has to be stored
+  # or rotated. Without this the sign step fails.
+  id-token: write
 
 jobs:
   images:
     name: Build, scan and push (${{ matrix.runtime }})
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
+          # agent/rag Dockerfiles COPY packages/shared, so they need the repo
+          # root as build context. sandbox-runner's Dockerfile only COPYs its
+          # own directory, so its context is the service directory.
           - runtime: agent-runtime
+            context: .
           - runtime: rag-runtime
+            context: .
+          - runtime: sandbox-runner
+            context: services/sandbox-runner
     steps:
       - uses: actions/checkout@v7
       - uses: docker/login-action@v4
@@ -28,20 +45,69 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build ${{ matrix.runtime }}
-        run: |
-          docker build \
-            -f services/${{ matrix.runtime }}/Dockerfile \
-            -t ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${GITHUB_REF_NAME} \
-            .
+      - uses: docker/setup-buildx-action@v4
+      - name: Build and load ${{ matrix.runtime }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: services/${{ matrix.runtime }}/Dockerfile
+          load: true
+          push: false
+          tags: ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.runtime }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.runtime }}
       - name: Scan ${{ matrix.runtime }} with Trivy
         uses: aquasecurity/trivy-action@0.36.0
         with:
-          image-ref: ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${GITHUB_REF_NAME}
+          image-ref: ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${{ github.sha }}
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-      - name: Push ${{ matrix.runtime }}
+      # Produce an SBOM before the image is published, so a consumer can answer
+      # "what is in this image" without pulling it apart.
+      - name: SBOM for ${{ matrix.runtime }}
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${{ github.sha }}
+          format: spdx-json
+          artifact-name: sbom-${{ matrix.runtime }}.spdx.json
+          upload-artifact: true
+      - name: Tag and push ${{ matrix.runtime }}
         run: |
+          docker tag \
+            ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${{ github.sha }} \
+            ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${GITHUB_REF_NAME}
           docker push ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${GITHUB_REF_NAME}
+      # Sign after pushing. Keyless: cosign exchanges this workflow's OIDC
+      # token for a short-lived certificate, so there is no key to store or
+      # rotate, and the signature is recorded in the public Rekor log.
+      #
+      # Signed by digest, never by tag - a tag can be repointed between the
+      # scan and the push, so signing the tag would attest to whatever the
+      # registry happens to serve at that moment.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Sign ${{ matrix.runtime }}
+        env:
+          IMAGE: ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${GITHUB_REF_NAME}
+        run: |
+          set -euo pipefail
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")
+          if [ -z "$digest" ]; then
+            echo "::error::could not resolve a digest for $IMAGE"
+            exit 1
+          fi
+          echo "signing $digest"
+          cosign sign --yes "$digest"
+      - name: Verify ${{ matrix.runtime }}
+        env:
+          IMAGE: ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${GITHUB_REF_NAME}
+        run: |
+          set -euo pipefail
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")
+          # Verify through the same identity the signing step used, so a broken
+          # signature fails the release instead of shipping unattested images.
+          cosign verify "$digest" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "^https://github\.com/${GITHUB_REPOSITORY}/.*$" | tail -n 1
