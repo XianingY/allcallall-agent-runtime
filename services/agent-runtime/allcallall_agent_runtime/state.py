@@ -93,3 +93,5 @@ class GraphState(TypedDict, total=False):
     skill_instructions: str
     # --- Module 4: retrieved durable long-term memory (opt-in) --- #
     long_term_memory: list[str]
+    # --- Task 12: per-run retrieval cache (not serialized) --- #
+    retrieval_cache: Any  # RunRetrievalCache

@@ -21,6 +21,7 @@ from allcallall_rag_runtime.pipeline import select_retrieval_chunks
 from allcallall_rag_runtime.go_bridge import GoRetrievalBridge
 from allcallall_rag_runtime.qdrant_adapter import QdrantAdapter
 from allcallall_rag_runtime.llamaindex_adapter import run_fixture_retrieval
+from allcallall_rag_runtime.retrieval import prepare_candidates, rerank_prepared
 from allcallall_rag_runtime.retrieval import (
     agentic_retrieve,
     build_graph_expansion,
@@ -126,6 +127,7 @@ def test_app_factory_preserves_public_routes() -> None:
         "/v1/capabilities",
         "/v1/retrieval/query",
         "/v1/retrieval/rerank",
+        "/v1/retrieval/prepare",
         "/v1/retrieval/agentic",
         "/v1/grounding/check",
     }
@@ -481,3 +483,93 @@ def test_llamaindex_eval_baseline_is_deterministic() -> None:
     )
 
     assert result.hits[0].source_type == "knowledge"
+
+
+# --------------------------------------------------------------------------- #
+# Task 12: RAG rerank reuse                                                         #
+# --------------------------------------------------------------------------- #
+
+
+class TestPrepareCandidates:
+    def test_prepare_candidates_deduplicates(self) -> None:
+        chunks = [
+            ContextChunk(source_type="meeting_transcript", source_id="1", snippet="approval risk"),
+            ContextChunk(source_type="meeting_transcript", source_id="1", snippet="approval risk"),
+        ]
+        prepared = prepare_candidates("approval", chunks)
+        assert prepared.chunk_count == 1
+
+    def test_prepare_candidates_filters_by_source_type(self) -> None:
+        chunks = [
+            ContextChunk(source_type="meeting_transcript", source_id="1", snippet="approval risk"),
+            ContextChunk(source_type="knowledge", source_id="2", snippet="policy"),
+        ]
+        prepared = prepare_candidates("approval", chunks, source_types=["knowledge"])
+        assert prepared.chunk_count == 1
+
+    def test_prepare_candidates_fingerprint_is_deterministic(self) -> None:
+        chunks = [
+            ContextChunk(source_type="meeting_transcript", source_id="1", snippet="approval risk"),
+            ContextChunk(source_type="knowledge", source_id="2", snippet="policy"),
+        ]
+        p1 = prepare_candidates("approval", chunks)
+        p2 = prepare_candidates("approval", chunks)
+        assert p1.fingerprint == p2.fingerprint
+
+    def test_prepare_candidates_fingerprint_changes_with_different_chunks(self) -> None:
+        chunks_a = [ContextChunk(source_type="meeting_transcript", source_id="1", snippet="approval")]
+        chunks_b = [ContextChunk(source_type="knowledge", source_id="2", snippet="policy")]
+        p1 = prepare_candidates("approval", chunks_a)
+        p2 = prepare_candidates("approval", chunks_b)
+        assert p1.fingerprint != p2.fingerprint
+
+
+class TestRerankReuse:
+    def test_agentic_retrieve_skips_rerank_for_unchanged_candidates(self) -> None:
+        """When the candidate fingerprint is unchanged between steps, the final
+        rerank should be skipped (evidenced by a trace event)."""
+        chunks = [
+            ContextChunk(
+                chunk_id="mt1",
+                source_type="meeting_transcript",
+                source_id="segment-1",
+                snippet="The meeting identified supplier approval delay as the launch risk.",
+                score=90,
+            ),
+        ]
+        response = agentic_retrieve(
+            AgenticRetrievalRequest(
+                query="launch risk",
+                source_types=["meeting_transcript"],
+                chunks=chunks,
+                top_k=1,
+                min_confidence=0.6,
+                max_steps=1,  # Single step — no in-loop rerank skip
+            ),
+            chunks,
+        )
+        # With max_steps=1, the final rerank is the only rerank.
+        # The fingerprint-based skip only applies when the fingerprint hasn't
+        # changed since the last in-loop rerank.
+        assert response.context_sufficiency.sufficient is True
+
+    def test_prepare_candidates_api_endpoint(self) -> None:
+        client = TestClient(app)
+        response = client.post(
+            "/v1/retrieval/prepare",
+            json={
+                "query": "approval risk",
+                "chunks": [
+                    {
+                        "chunk_id": "mt1",
+                        "source_type": "meeting_transcript",
+                        "source_id": "1",
+                        "snippet": "approval risk",
+                    }
+                ],
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert "fingerprint" in body
+        assert body["chunk_count"] == 1

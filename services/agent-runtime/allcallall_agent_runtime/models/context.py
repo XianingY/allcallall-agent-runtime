@@ -116,6 +116,9 @@ class MeetingBriefRequest(BaseModel):
     agentic_rag: AgenticRAGConfig = Field(default_factory=AgenticRAGConfig)
     model_history: str = ""  # bounded history injected by context compression
     long_term_memory: list[str] = Field(default_factory=list)  # L2 retrieved durable memory
+    retrieval_mode: str = ""  # go_context | rag_runtime | hybrid; empty defaults to hybrid
+    context_fingerprint: str = ""  # SHA-256 prefix of context chunk keys; empty means unset
+    corpus_version: str = ""  # Opaque version tag for the indexed corpus; empty means unset
 
     @field_validator(
         "messages",

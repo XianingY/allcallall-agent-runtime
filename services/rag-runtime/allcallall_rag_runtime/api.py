@@ -13,13 +13,15 @@ from .models import (
     AgenticRetrievalResponse,
     GroundingCheckRequest,
     GroundingCheckResponse,
+    PreparedCandidates,
+    PrepareCandidatesRequest,
     RetrievalQueryRequest,
     RetrievalQueryResponse,
     RerankRequest,
     RerankResponse,
 )
 from .pipeline import select_retrieval_chunks
-from .retrieval import agentic_retrieve, filter_chunks, grounding_check, rerank
+from .retrieval import agentic_retrieve, filter_chunks, grounding_check, prepare_candidates, rerank
 
 
 router = APIRouter()
@@ -45,7 +47,7 @@ def ready() -> dict[str, str]:
 def capabilities() -> dict[str, object]:
     return {
         "runtime": "python_rag",
-        "retrieval": ["query", "rerank", "agentic", "grounding_check"],
+        "retrieval": ["query", "rerank", "prepare", "agentic", "grounding_check"],
         "intent_routes": ["chat", "consult", "risk"],
         "strategies": [
             "single_pass",
@@ -80,6 +82,17 @@ def retrieval_query(
 def retrieval_rerank(request: RerankRequest) -> RerankResponse:
     metrics.inc("rag_runtime_rerank_total")
     return rerank(request.query, request.chunks, request.top_k)
+
+
+@router.post("/v1/retrieval/prepare", response_model=PreparedCandidates)
+def retrieval_prepare(request: PrepareCandidatesRequest) -> PreparedCandidates:
+    """Prepare candidates for later reranking.
+
+    Returns a fingerprint that callers can use to skip redundant reranking
+    when the candidate set has not changed.
+    """
+    metrics.inc("rag_runtime_prepare_total")
+    return prepare_candidates(request.query, request.chunks, request.source_types)
 
 
 @router.post("/v1/retrieval/agentic", response_model=AgenticRetrievalResponse)

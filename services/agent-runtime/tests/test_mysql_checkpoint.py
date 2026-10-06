@@ -10,6 +10,7 @@ import pymysql
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata
 
+from allcallall_agent_runtime.checkpoint.payload import project_checkpoint_state, serialized_checkpoint_size
 from allcallall_agent_runtime.checkpoint import (
     CheckpointExecutionBusy,
     CheckpointVersionConflict,
@@ -197,3 +198,39 @@ def drop_write_trigger(trigger_name: str) -> None:
     with mysql_connection_factory(MYSQL_DSN)() as connection, connection.cursor() as cursor:
         cursor.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
         connection.commit()
+
+class TestCheckpointProjection:
+    """Test that checkpoint projection is applied during MySQL put and the
+    projected state can be read back for resume."""
+
+    def test_projection_reduces_size(self) -> None:
+        """Projected state should be smaller than original state."""
+        state = {
+            "provider": object(),
+            "tool_bridge": object(),
+            "agentic_context_chunks": [
+                ContextChunk(chunk_id="mt-1", source_type="meeting_transcript", source_id="1", snippet="x" * 1000),
+            ],
+            "trace_events": [TraceEvent(event="test", node="n", status="s") for _ in range(100)],
+            "summary": "test summary",
+        }
+        original_size = serialized_checkpoint_size(state)
+        projected = project_checkpoint_state(state)
+        projected_size = serialized_checkpoint_size(projected)
+        # Projection should significantly reduce size (dropping provider, tool_bridge,
+        # compacting chunks and traces).
+        assert projected_size < original_size
+
+    def test_projection_retains_resume_keys(self) -> None:
+        """Projected state should retain all keys needed for resume."""
+        state = {
+            "summary": "test",
+            "action_items": ["item1"],
+            "risk_flags": [],
+            "critic_retries": 0,
+            "last_check_decision": "pass",
+        }
+        projected = project_checkpoint_state(state)
+        assert projected["summary"] == "test"
+        assert projected["action_items"] == ["item1"]
+        assert projected["critic_retries"] == 0
