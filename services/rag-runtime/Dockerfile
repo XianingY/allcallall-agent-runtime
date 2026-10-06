@@ -9,7 +9,13 @@ WORKDIR /app
 
 COPY packages/shared ./packages/shared
 COPY services/rag-runtime ./services/rag-runtime
-RUN pip install --no-cache-dir ./packages/shared ./services/rag-runtime
+
+# setuptools 79.0.1 (pre-installed in the base image) vendors wheel 0.45.1 and
+# jaraco.context 5.3.0 under setuptools/_vendor/, both of which carry HIGH CVEs.
+# Upgrade to a release that vendors the fixed versions (wheel >= 0.46.2,
+# jaraco.context >= 6.1.0) instead of leaving the stale vendored copies behind.
+RUN pip install --no-cache-dir "setuptools>=84" \
+    && pip install --no-cache-dir ./packages/shared ./services/rag-runtime
 
 ENV PY_RAG_RUNTIME_HOST=0.0.0.0
 ENV PY_RAG_RUNTIME_PORT=8091
