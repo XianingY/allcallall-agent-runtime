@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # The three runtime images pin their base images by digest for reproducible
+  # builds. Pinned digests accumulate OS-package CVEs over time; the publish
+  # gate's Trivy scan ignores "unfixed" findings, but as soon as Debian ships
+  # fixes those findings become actionable and block the next publish. This
+  # weekly bump keeps the pins moving onto freshly patched base images.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    target-branch: "main"
+
+  # Bundle every GitHub Action bump into ONE PR instead of one-per-action,
+  # matching the main AllCallAll repo's convention.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
+    target-branch: "main"
+
+  # Keep the Python dependency graph current between releases. The uv
+  # ecosystem updates pyproject.toml and uv.lock together, so the
+  # `uv lock --check` CI gate stays satisfied.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    target-branch: "main"

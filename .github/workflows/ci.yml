@@ -45,3 +45,33 @@ jobs:
         run: docker build -f services/rag-runtime/Dockerfile -t allcallall-rag-runtime:ci .
       - name: Build Sandbox Runner
         run: docker build -f services/sandbox-runner/Dockerfile -t allcallall-sandbox-runner:ci .
+      # A build can succeed while the image is broken at runtime (e.g. a
+      # missing module or a venv that cannot start); boot each image and probe
+      # /health so that class of failure fails CI instead of the first deploy.
+      - name: Smoke Test Agent Runtime
+        run: |
+          docker run -d --rm --name agent-smoke -p 18090:8090 allcallall-agent-runtime:ci
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:18090/health && break
+            sleep 1
+          done
+          curl -sf http://localhost:18090/health | grep -q '"status":"ok"' || { docker logs agent-smoke; exit 1; }
+          docker stop agent-smoke
+      - name: Smoke Test RAG Runtime
+        run: |
+          docker run -d --rm --name rag-smoke -p 18091:8091 allcallall-rag-runtime:ci
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:18091/health && break
+            sleep 1
+          done
+          curl -sf http://localhost:18091/health | grep -q '"status":"ok"' || { docker logs rag-smoke; exit 1; }
+          docker stop rag-smoke
+      - name: Smoke Test Sandbox Runner
+        run: |
+          docker run -d --rm --name sandbox-smoke -p 18093:8093 allcallall-sandbox-runner:ci
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:18093/health && break
+            sleep 1
+          done
+          curl -sf http://localhost:18093/health | grep -q '"status":"ok"' || { docker logs sandbox-smoke; exit 1; }
+          docker stop sandbox-smoke
