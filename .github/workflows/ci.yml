@@ -15,6 +15,13 @@ jobs:
           cache: pip
       - name: Install
         run: make install-dev
+      - name: Verify uv.lock is in sync
+        # The lock is the reproducibility contract for the published images
+        # (Dockerfiles run `uv sync --frozen`). Fail early if a dependency
+        # change lands without regenerating it.
+        run: |
+          pip install uv
+          uv lock --check
       - name: Test
         run: make test
       - name: Lint
@@ -36,3 +43,5 @@ jobs:
         run: docker build -f services/agent-runtime/Dockerfile -t allcallall-agent-runtime:ci .
       - name: Build RAG Runtime
         run: docker build -f services/rag-runtime/Dockerfile -t allcallall-rag-runtime:ci .
+      - name: Build Sandbox Runner
+        run: docker build -f services/sandbox-runner/Dockerfile -t allcallall-sandbox-runner:ci .

@@ -30,14 +30,14 @@ jobs:
       matrix:
         include:
           # agent/rag Dockerfiles COPY packages/shared, so they need the repo
-          # root as build context. sandbox-runner's Dockerfile only COPYs its
-          # own directory, so its context is the service directory.
+          # root as build context. sandbox-runner's Dockerfile COPYs the
+          # workspace pyproject.toml and uv.lock, so it also needs the root.
           - runtime: agent-runtime
             context: .
           - runtime: rag-runtime
             context: .
           - runtime: sandbox-runner
-            context: services/sandbox-runner
+            context: .
     steps:
       - uses: actions/checkout@v7
       - uses: docker/login-action@v4
