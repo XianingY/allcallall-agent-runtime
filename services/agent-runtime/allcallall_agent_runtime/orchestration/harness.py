@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
+import json
 import uuid
 from collections import defaultdict
 from threading import Lock
@@ -27,6 +29,7 @@ from ..async_tool_queue import AsyncToolQueue, get_default_tool_queue, priority_
 from ..badcase import BadcaseStore, classify_badcase
 from ..models import (
     AgentHarnessMetadata,
+    ApprovalDecision,
     AgentRunRequest,
     AgentRunResponse,
     ContextSufficiency,
@@ -42,6 +45,9 @@ from ..models import (
     MemoryReflection,
     MeetingBriefRequest,
     MeetingBriefResponse,
+    PendingApproval,
+    PendingApprovalTool,
+    ToolProposal,
     RetrievalPlan,
     RouteDecision,
     RiskAssessment,
@@ -49,6 +55,7 @@ from ..models import (
     TraceEvent,
     WorkflowRequest,
     WorkflowResponse,
+    WorkflowResumeRequest,
 )
 from ..deadline import (
     ExecutionCancelled,
@@ -73,6 +80,10 @@ class HarnessTimeoutExceeded(TimeoutError):
     def __init__(self, timeout_seconds: float) -> None:
         super().__init__(f"workflow run exceeded the {timeout_seconds}s request timeout")
         self.timeout_seconds = timeout_seconds
+
+
+class CheckpointConflictError(RuntimeError):
+    """Raised when a resume request does not match durable checkpoint state."""
 
 
 # Bounded pool for running blocking LangGraph invocations off the (sync) request
@@ -292,6 +303,104 @@ class AllCallAllAgentHarness:
         graph_result: dict[str, Any] = graph.invoke(state, config=run_config)
         return graph_result
 
+    def _run_config(self, request: WorkflowRequest) -> dict[str, Any]:
+        """Return the durable LangGraph config for a Go-owned execution."""
+
+        run_id = request.agent_run_id or request.workflow_run_id
+        configurable: dict[str, Any] = {
+            "thread_id": f"aca-{run_id}",
+            "execution_id": request.execution_id,
+        }
+        if request.workflow_run_id:
+            configurable["workflow_run_id"] = request.workflow_run_id
+        if request.agent_run_id:
+            configurable["agent_run_id"] = request.agent_run_id
+        return {"configurable": configurable}
+
+    def _resume_config(self, request: WorkflowResumeRequest) -> dict[str, Any]:
+        run_id = request.agent_run_id or request.workflow_run_id
+        configurable: dict[str, Any] = {
+            "thread_id": f"aca-{run_id}",
+            "execution_id": request.execution_id,
+        }
+        if request.workflow_run_id:
+            configurable["workflow_run_id"] = request.workflow_run_id
+        if request.agent_run_id:
+            configurable["agent_run_id"] = request.agent_run_id
+        return {"configurable": configurable}
+
+    def _checkpoint_contract(self, graph: Any, config: dict[str, Any]) -> tuple[str, int]:
+        """Read the current checkpoint identity from durable graph state."""
+
+        snapshot = graph.get_state(config)
+        if snapshot is None or snapshot.values is None:
+            raise CheckpointConflictError("runtime checkpoint not found")
+        configurable = snapshot.config.get("configurable", {})
+        checkpoint_id = str(configurable.get("checkpoint_id", ""))
+        version = int(configurable.get("checkpoint_version", 0) or 0)
+        if version == 0:
+            # LangGraph's built-in MemorySaver does not expose this project's
+            # numeric version. History counting gives tests the same monotonic
+            # semantics; production uses the MySQL/SQLite savers with versions.
+            version = sum(1 for _ in graph.get_state_history(config))
+        if not checkpoint_id:
+            raise CheckpointConflictError("runtime checkpoint_id is missing")
+        return checkpoint_id, max(1, version)
+
+    @staticmethod
+    def _canonical_arguments_digest(arguments: dict[str, Any]) -> str:
+        canonical = json.dumps(
+            arguments,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+
+    @staticmethod
+    def _tool_call_id(proposal: ToolProposal, execution_id: str, index: int) -> str:
+        candidate = proposal.tool_call_id or proposal.idempotency_key
+        if candidate and len(candidate) <= 96:
+            return candidate
+        if candidate:
+            return f"{execution_id}:{hashlib.sha256(candidate.encode()).hexdigest()[:24]}"
+        return f"{execution_id}:{index + 1}"
+
+    def _contract_tool_calls(
+        self, execution_id: str, proposals: list[ToolProposal]
+    ) -> list[ToolProposal]:
+        return [
+            proposal.model_copy(
+                update={"tool_call_id": self._tool_call_id(proposal, execution_id, index)}
+            )
+            for index, proposal in enumerate(proposals)
+        ]
+
+    def _pending_approval(
+        self, execution_id: str, proposals: list[ToolProposal]
+    ) -> PendingApproval | None:
+        if not proposals:
+            return None
+        approval_request_id = f"{execution_id}:approval"
+        if len(approval_request_id) > 96:
+            approval_request_id = (
+                f"approval:{hashlib.sha256(execution_id.encode()).hexdigest()[:32]}"
+            )
+        tools = [
+            PendingApprovalTool(
+                tool_call_id=proposal.tool_call_id,
+                tool_name=proposal.tool_name,
+                arguments=proposal.arguments,
+                arguments_sha256=self._canonical_arguments_digest(proposal.arguments),
+                reason=proposal.reason,
+                mcp_installation_id=proposal.mcp_installation_id,
+                mcp_revision_id=proposal.mcp_revision_id,
+                mcp_tool_id=proposal.mcp_tool_id,
+            )
+            for proposal in proposals
+        ]
+        return PendingApproval(approval_request_id=approval_request_id, tools=tools)
+
     def run_meeting_brief(self, request: MeetingBriefRequest) -> MeetingBriefResponse:
         return self.run_workflow(request.model_copy(update={"preset": "meeting_brief"}))
 
@@ -325,7 +434,7 @@ class AllCallAllAgentHarness:
             # LangGraph requires a thread_id whenever a checkpointer is attached
             # (SQLite/MySQL). Derive it from the request so runs are durable and
             # resumable, and stable across retries of the same workflow run.
-            run_config = {"configurable": {"thread_id": f"aca-{request.workflow_run_id}"}}
+            run_config = self._run_config(request)
             # The request-scoped deadline is propagated via the module-level
             # context variable (set by the HTTP layer), not via graph state,
             # so it is naturally excluded from checkpoint serialization.
@@ -376,9 +485,89 @@ class AllCallAllAgentHarness:
                 ],
             )
 
-        response = self._response_from_graph_result(request, provider_name, result)
+        checkpoint_id, checkpoint_version = "", 0
+        if request.execution_id and self.checkpoint_store.kind != "none":
+            checkpoint_id, checkpoint_version = self._checkpoint_contract(
+                self._get_graph(), run_config
+            )
+        proposed = self._contract_tool_calls(
+            request.execution_id, result.get("proposed_tool_calls", [])
+        )
+        result = {**result, "proposed_tool_calls": proposed}
+        response = self._response_from_graph_result(
+            request,
+            provider_name,
+            result,
+            checkpoint_id=checkpoint_id,
+            checkpoint_version=checkpoint_version,
+        )
         self._capture_badcase(request, response)
         return response
+
+    def resume_workflow(self, request: WorkflowResumeRequest) -> WorkflowResponse:
+        """Acknowledge Go-approved writes and advance the durable checkpoint."""
+
+        graph = self._get_graph()
+        config = self._resume_config(request)
+        snapshot = graph.get_state(config)
+        if snapshot is None or snapshot.values is None:
+            raise CheckpointConflictError("runtime checkpoint not found")
+        state_request = snapshot.values.get("request")
+        if not isinstance(state_request, WorkflowRequest):
+            raise CheckpointConflictError("runtime checkpoint request is missing")
+        if state_request.execution_id != request.execution_id:
+            raise CheckpointConflictError("runtime execution_id does not match checkpoint")
+
+        checkpoint_id, checkpoint_version = self._checkpoint_contract(graph, config)
+        if checkpoint_version != request.expected_checkpoint_version:
+            raise CheckpointConflictError(
+                "runtime checkpoint version does not match expected version"
+            )
+
+        proposals = self._contract_tool_calls(
+            state_request.execution_id, snapshot.values.get("proposed_tool_calls", [])
+        )
+        pending = self._pending_approval(state_request.execution_id, proposals)
+        if pending is None or request.resume.approval_request_id != pending.approval_request_id:
+            raise CheckpointConflictError("approval request does not match checkpoint")
+        self._validate_resume_decisions(proposals, request.resume.decisions)
+
+        graph.update_state(
+            config,
+            {"approval_decisions": request.resume.decisions},
+            as_node="approval_gate",
+        )
+        checkpoint_id, checkpoint_version = self._checkpoint_contract(graph, config)
+        updated = graph.get_state(config)
+        if updated is None or updated.values is None:
+            raise CheckpointConflictError("resumed runtime checkpoint not found")
+        provider_name = app_config.provider or "rules"
+        return self._response_from_graph_result(
+            state_request,
+            provider_name,
+            {**updated.values, "proposed_tool_calls": []},
+            checkpoint_id=checkpoint_id,
+            checkpoint_version=checkpoint_version,
+            approval_decisions=request.resume.decisions,
+        )
+
+    def resume_agent(self, request: WorkflowResumeRequest) -> WorkflowResponse:
+        return self.resume_workflow(request)
+
+    @staticmethod
+    def _validate_resume_decisions(
+        proposals: list[ToolProposal], decisions: list[ApprovalDecision]
+    ) -> None:
+        if not proposals or len(decisions) != len(proposals):
+            raise CheckpointConflictError("approval decisions must match pending tools")
+        expected = {proposal.tool_call_id for proposal in proposals}
+        if len(expected) != len(proposals):
+            raise CheckpointConflictError("pending tool call ids must be unique")
+        seen: set[str] = set()
+        for decision in decisions:
+            if decision.tool_call_id not in expected or decision.tool_call_id in seen:
+                raise CheckpointConflictError("approval decisions must match pending tools")
+            seen.add(decision.tool_call_id)
 
     def _enqueue_proposals(
         self, request: WorkflowRequest, proposals: list[object]
@@ -467,9 +656,16 @@ class AllCallAllAgentHarness:
         request: WorkflowRequest,
         provider_name: str,
         result: dict[str, Any],
+        *,
+        checkpoint_id: str = "",
+        checkpoint_version: int = 0,
+        approval_decisions: list[ApprovalDecision] | None = None,
     ) -> WorkflowResponse:
-        proposed = result.get("proposed_tool_calls", [])
+        proposed = self._contract_tool_calls(
+            request.execution_id, result.get("proposed_tool_calls", [])
+        )
         status = "requires_action" if proposed else "ready"
+        pending = self._pending_approval(request.execution_id, proposed)
         trace_events = result.get("trace_events", [])
         role_results = result.get("role_results", [])
         intent_route = result.get("intent_route", IntentRoute())
@@ -495,6 +691,9 @@ class AllCallAllAgentHarness:
         return WorkflowResponse(
             status=status,
             provider=provider_name,
+            execution_id=request.execution_id,
+            checkpoint_id=checkpoint_id,
+            checkpoint_version=checkpoint_version,
             summary=result.get("summary", ""),
             action_items=result.get("action_items", []),
             next_step=result.get("next_step", ""),
@@ -503,6 +702,8 @@ class AllCallAllAgentHarness:
             role_results=role_results,
             trace_events=trace_events,
             proposed_tool_calls=proposed,
+            pending_approval=pending,
+            approval_decisions=approval_decisions or [],
             prompt_version=prompt_version,
             grounding_check_result=grounding,
             retrieval_plan=result.get("retrieval_plan") or RetrievalPlan(),

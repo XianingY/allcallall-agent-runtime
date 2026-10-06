@@ -97,10 +97,23 @@ class AgenticRAGConfig(BaseModel):
     min_confidence: float = 0.6
 
 
+class ContextManifest(BaseModel):
+    """Context-collection accounting emitted by the Go backend."""
+
+    selected: dict[str, int] = Field(default_factory=dict)
+    truncated: list[str] = Field(default_factory=list)
+    serialized_bytes: int = 0
+    estimated_tokens: int = 0
+    sql_statements: int = 0
+
+
 class MeetingBriefRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: str = ""
+    execution_id: str = ""
+    expected_checkpoint_version: int = 0
+    tool_capability: str = ""
     organization_id: int
     user_id: int
     conversation_id: int
@@ -121,6 +134,7 @@ class MeetingBriefRequest(BaseModel):
     retrieval_mode: RetrievalMode = "hybrid"
     context_fingerprint: str = ""  # SHA-256 prefix of context chunk keys; empty means unset
     corpus_version: str = ""  # Opaque version tag for the indexed corpus; empty means unset
+    context_manifest: ContextManifest | None = None
 
     @field_validator("retrieval_mode", mode="before")
     @classmethod

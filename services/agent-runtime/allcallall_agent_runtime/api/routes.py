@@ -10,8 +10,8 @@ from ..api_auth import require_auth
 from ..async_tool_queue import get_default_tool_queue
 from ..config import config as runtime_config
 from ..deadline import ExecutionCancelled, ExecutionDeadline, set_current_deadline
-from ..helpers import SUPPORTED_WORKFLOWS
-from ..harness import HarnessTimeoutExceeded, get_harness
+from ..helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
+from ..harness import CheckpointConflictError, HarnessTimeoutExceeded, get_harness
 from ..metrics import (
     cancelled_total,
     registry,
@@ -24,6 +24,7 @@ from ..models import (
     MeetingBriefResponse,
     WorkflowRequest,
     WorkflowResponse,
+    WorkflowResumeRequest,
 )
 from ..skill_registry import build_production_registry
 
@@ -91,6 +92,8 @@ def _run_with_admission(
         set_current_deadline(deadline)
         try:
             return run_func(run_request)
+        except CheckpointConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
         except HarnessTimeoutExceeded:
             # Cancellation is requested by the harness in _invoke_graph;
             # do not double-count cancel_requested_total here.
@@ -115,6 +118,8 @@ def _run_with_admission(
         set_current_deadline(deadline)
         try:
             return run_func(run_request)
+        except CheckpointConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
         except HarnessTimeoutExceeded:
             # Cancellation is requested by the harness in _invoke_graph;
             # do not double-count cancel_requested_total here.
@@ -143,6 +148,14 @@ def run_react_agent(request: AgentRunRequest) -> AgentRunResponse:
 def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
     """Run a workflow (no metrics or timeout handling — delegated to _run_with_admission)."""
     return get_harness().run_workflow(request)
+
+
+def resume_workflow(request: WorkflowResumeRequest) -> WorkflowResponse:
+    return get_harness().resume_workflow(request)
+
+
+def resume_agent(request: WorkflowResumeRequest) -> WorkflowResponse:
+    return get_harness().resume_agent(request)
 
 
 @router.get("/health")
@@ -197,9 +210,20 @@ def capabilities() -> dict[str, object]:
         "memory": ["reflection", "approval_gated_upsert"],
         "write_tools": "proposal_only",
         "tool_queue": {
-            "mode": "async_after_approval",
-            "retry": "bounded",
-            "dead_letter": True,
+            "enabled": runtime_config.enable_tool_queue,
+            **(
+                {
+                    "mode": "async_after_approval",
+                    "retry": "bounded",
+                    "dead_letter": True,
+                }
+                if runtime_config.deployment_mode == "single_process"
+                else {
+                    "mode": "go_outbox",
+                    "retry": "go_durable_outbox",
+                    "dead_letter": "go_durable_outbox",
+                }
+            ),
         },
     }
 
@@ -217,6 +241,18 @@ def meeting_brief(request: MeetingBriefRequest, fastapi_request: Request) -> Mee
 @router.post("/v1/workflows/{preset}/run", response_model=WorkflowResponse, dependencies=[Depends(require_auth)])
 def workflow_run(preset: str, request: WorkflowRequest, fastapi_request: Request) -> WorkflowResponse:
     return _run_with_admission(fastapi_request, run_workflow, request.model_copy(update={"preset": preset}))
+
+
+@router.post("/v1/workflows/{preset}/resume", response_model=WorkflowResponse, dependencies=[Depends(require_auth)])
+def workflow_resume(preset: str, request: WorkflowResumeRequest, fastapi_request: Request) -> WorkflowResponse:
+    if normalize_workflow_preset(preset) not in SUPPORTED_WORKFLOWS:
+        raise HTTPException(status_code=404, detail="unsupported workflow preset")
+    return _run_with_admission(fastapi_request, resume_workflow, request)
+
+
+@router.post("/v1/agents/react/resume", response_model=WorkflowResponse, dependencies=[Depends(require_auth)])
+def react_resume(request: WorkflowResumeRequest, fastapi_request: Request) -> WorkflowResponse:
+    return _run_with_admission(fastapi_request, resume_agent, request)
 
 
 @router.get("/v1/tool-queue/status", dependencies=[Depends(require_auth)])

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, Self
 
-from pydantic import model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -167,7 +167,15 @@ class AgentRuntimeConfig(BaseSettings):
     max_active_runs: int = 4
     max_queued_runs: int = 16
     max_queue_wait_seconds: float = 5.0
-    cancellation_grace_seconds: float = 2.0  # Grace period for cooperative cancellation after timeout
+    # The Helm chart shares Go's PY_AGENT_RUNTIME_CANCELLATION_GRACE_SEC name;
+    # keep the older Python-specific spelling for local development.
+    cancellation_grace_seconds: float = Field(
+        default=2.0,
+        validation_alias=AliasChoices(
+            "PY_AGENT_RUNTIME_CANCELLATION_GRACE_SEC",
+            "PY_AGENT_CANCELLATION_GRACE_SECONDS",
+        ),
+    )  # Grace period for cooperative cancellation after timeout
 
     model_config = {"env_prefix": "PY_AGENT_"}
 

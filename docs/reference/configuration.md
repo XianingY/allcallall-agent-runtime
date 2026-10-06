@@ -56,6 +56,7 @@ your secret manager; the comparison is constant-time.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PY_AGENT_ENABLE_TOOL_QUEUE` | `false` | When `true`, approved write-tool proposals produced by a workflow run are enqueued on the in-process :class:`AsyncToolQueue` and executed in the background by a worker that calls the Go backend's write tool endpoint (shared `PY_AGENT_TOOL_BRIDGE_TOKEN` auth). When `false` (default), proposals are returned to the caller unchanged (legacy behavior). |
+| `PY_AGENT_DEPLOYMENT_MODE` | `multi_replica` | Deployment topology used by the runtime. `multi_replica` is the production default and leaves durable write execution in the Go outbox. `single_process` is required before `PY_AGENT_ENABLE_TOOL_QUEUE=true`; the startup validation rejects the unsafe combination. |
 
 Endpoints (all bearer-protected when `PY_AGENT_API_TOKEN` is set):
 

@@ -29,11 +29,13 @@ EXPECTED_ROUTES = {
     ("HEAD", "/redoc"),
     ("GET", "/v1/capabilities"),
     ("POST", "/v1/agents/react/run"),
+    ("POST", "/v1/agents/react/resume"),
     ("GET", "/v1/skills"),
     ("GET", "/v1/tool-queue/metrics"),
     ("GET", "/v1/tool-queue/status"),
     ("GET", "/v1/workflows"),
     ("POST", "/v1/workflows/meeting-brief/run"),
+    ("POST", "/v1/workflows/{preset}/resume"),
     ("POST", "/v1/workflows/{preset}/run"),
 }
 
@@ -150,6 +152,10 @@ def test_app_lifespan_rejects_tool_queue_in_multi_replica_mode(
 def test_ready_and_capabilities_report_effective_deployment_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    default = TestClient(app).get("/v1/capabilities").json()
+    assert default["tool_queue"]["enabled"] is False
+    assert default["tool_queue"]["mode"] == "go_outbox"
+
     monkeypatch.setattr(
         "allcallall_agent_runtime.api.routes.runtime_config.deployment_mode",
         "single_process",
@@ -159,7 +165,9 @@ def test_ready_and_capabilities_report_effective_deployment_mode(
     client = TestClient(app)
 
     assert client.get("/ready").json()["deployment_mode"] == "single_process"
-    assert client.get("/v1/capabilities").json()["deployment_mode"] == "single_process"
+    capabilities = client.get("/v1/capabilities").json()
+    assert capabilities["deployment_mode"] == "single_process"
+    assert capabilities["tool_queue"]["mode"] == "async_after_approval"
 
 
 def test_workflow_response_still_returns_approved_proposals_in_multi_replica_mode() -> None:

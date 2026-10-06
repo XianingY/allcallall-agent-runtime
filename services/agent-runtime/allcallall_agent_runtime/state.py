@@ -21,6 +21,7 @@ from .models import (
     RiskAssessment,
     RoleResult,
     ToolProposal,
+    ApprovalDecision,
     TraceEvent,
     WorkflowRequest,
 )
@@ -80,6 +81,7 @@ class GraphState(TypedDict, total=False):
     risk_flags: list[str]
     citations: list[Citation]
     proposed_tool_calls: list[ToolProposal]
+    approval_decisions: list[ApprovalDecision]
     prompt_version: str
     grounding_check_result: dict[str, Any]
     critic_result: CriticResult
