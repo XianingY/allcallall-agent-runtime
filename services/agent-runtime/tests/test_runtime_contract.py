@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 from unittest.mock import patch
 
@@ -17,7 +19,10 @@ from allcallall_agent_runtime.models import (
     WorkflowResponse,
     WorkflowResumeRequest,
 )
-from allcallall_agent_runtime.orchestration.harness import AllCallAllAgentHarness
+from allcallall_agent_runtime.orchestration.harness import (
+    AllCallAllAgentHarness,
+    CheckpointVersionConflictError,
+)
 
 
 GO_INITIAL_REQUEST: dict[str, Any] = {
@@ -158,6 +163,21 @@ def test_workflow_and_agent_resume_endpoints_accept_go_contract() -> None:
     assert agent.json()["checkpoint_version"] == 5
 
 
+def test_checkpoint_version_conflict_returns_go_error_code() -> None:
+    class ConflictHarness:
+        def resume_workflow(self, request: Any) -> WorkflowResponse:
+            raise CheckpointVersionConflictError("runtime checkpoint version mismatch")
+
+    with patch("allcallall_agent_runtime.api.routes.get_harness", return_value=ConflictHarness()):
+        response = TestClient(create_app()).post(
+            "/v1/workflows/meeting_brief/resume",
+            json=_go_resume_payload(),
+        )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "checkpoint_version_conflict"
+
+
 def test_harness_returns_durable_checkpoint_and_resumes_approval() -> None:
     request = MeetingBriefRequest(
         organization_id=1,
@@ -208,9 +228,19 @@ def test_harness_returns_durable_checkpoint_and_resumes_approval() -> None:
     assert initial.pending_approval.tools[0].tool_call_id
     assert initial.pending_approval.tools[0].arguments_sha256
 
+    decisions = [
+        {"tool_call_id": tool.tool_call_id, "decision": "approve"}
+        for tool in initial.pending_approval.tools
+    ]
+    decision_digest = hashlib.sha256(
+        json.dumps(decisions, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    resume_execution_id = (
+        f"workflow:123:resume:{initial.checkpoint_version}:{decision_digest}"
+    )
     resume_request = {
         "request_id": "req-1",
-        "execution_id": "workflow:123",
+        "execution_id": resume_execution_id,
         "expected_checkpoint_version": initial.checkpoint_version,
         "tool_capability": "builtin",
         "organization_id": 1,
@@ -219,15 +249,13 @@ def test_harness_returns_durable_checkpoint_and_resumes_approval() -> None:
         "workflow_run_id": 123,
         "resume": {
             "approval_request_id": initial.pending_approval.approval_request_id,
-            "decisions": [
-                {"tool_call_id": tool.tool_call_id, "decision": "approve"}
-                for tool in initial.pending_approval.tools
-            ],
+            "decisions": decisions,
         },
     }
     resumed = harness.resume_workflow(WorkflowResumeRequest.model_validate(resume_request))
 
     assert resumed.status == "ready"
+    assert resumed.execution_id == resume_execution_id
     assert resumed.pending_approval is None
     assert resumed.checkpoint_id
     assert resumed.checkpoint_version > initial.checkpoint_version

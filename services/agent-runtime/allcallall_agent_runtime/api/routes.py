@@ -11,7 +11,12 @@ from ..async_tool_queue import get_default_tool_queue
 from ..config import config as runtime_config
 from ..deadline import ExecutionCancelled, ExecutionDeadline, set_current_deadline
 from ..helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
-from ..harness import CheckpointConflictError, HarnessTimeoutExceeded, get_harness
+from ..harness import (
+    CheckpointConflictError,
+    CheckpointVersionConflictError,
+    HarnessTimeoutExceeded,
+    get_harness,
+)
 from ..metrics import (
     cancelled_total,
     registry,
@@ -92,8 +97,16 @@ def _run_with_admission(
         set_current_deadline(deadline)
         try:
             return run_func(run_request)
+        except CheckpointVersionConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "checkpoint_version_conflict", "reason": str(exc)},
+            ) from None
         except CheckpointConflictError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from None
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "checkpoint_conflict", "reason": str(exc)},
+            ) from None
         except HarnessTimeoutExceeded:
             # Cancellation is requested by the harness in _invoke_graph;
             # do not double-count cancel_requested_total here.
@@ -118,8 +131,16 @@ def _run_with_admission(
         set_current_deadline(deadline)
         try:
             return run_func(run_request)
+        except CheckpointVersionConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "checkpoint_version_conflict", "reason": str(exc)},
+            ) from None
         except CheckpointConflictError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from None
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "checkpoint_conflict", "reason": str(exc)},
+            ) from None
         except HarnessTimeoutExceeded:
             # Cancellation is requested by the harness in _invoke_graph;
             # do not double-count cancel_requested_total here.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import hashlib
 import json
+import re
 import uuid
 from collections import defaultdict
 from threading import Lock
@@ -84,6 +85,10 @@ class HarnessTimeoutExceeded(TimeoutError):
 
 class CheckpointConflictError(RuntimeError):
     """Raised when a resume request does not match durable checkpoint state."""
+
+
+class CheckpointVersionConflictError(CheckpointConflictError):
+    """Raised when the durable checkpoint advanced before a resume request."""
 
 
 # Bounded pool for running blocking LangGraph invocations off the (sync) request
@@ -515,12 +520,14 @@ class AllCallAllAgentHarness:
         state_request = snapshot.values.get("request")
         if not isinstance(state_request, WorkflowRequest):
             raise CheckpointConflictError("runtime checkpoint request is missing")
-        if state_request.execution_id != request.execution_id:
+        if not self._resume_execution_id_matches(
+            state_request.execution_id, request.execution_id, request.expected_checkpoint_version
+        ):
             raise CheckpointConflictError("runtime execution_id does not match checkpoint")
 
         checkpoint_id, checkpoint_version = self._checkpoint_contract(graph, config)
         if checkpoint_version != request.expected_checkpoint_version:
-            raise CheckpointConflictError(
+            raise CheckpointVersionConflictError(
                 "runtime checkpoint version does not match expected version"
             )
 
@@ -542,13 +549,36 @@ class AllCallAllAgentHarness:
         if updated is None or updated.values is None:
             raise CheckpointConflictError("resumed runtime checkpoint not found")
         provider_name = app_config.provider or "rules"
-        return self._response_from_graph_result(
+        response = self._response_from_graph_result(
             state_request,
             provider_name,
             {**updated.values, "proposed_tool_calls": []},
             checkpoint_id=checkpoint_id,
             checkpoint_version=checkpoint_version,
             approval_decisions=request.resume.decisions,
+        )
+        response.execution_id = request.execution_id
+        return response
+
+    @staticmethod
+    def _resume_execution_id_matches(
+        stored_execution_id: str, requested_execution_id: str, checkpoint_version: int
+    ) -> bool:
+        """Match Go's initial and resume execution IDs for the same durable run.
+
+        Go initially sends ``{kind}:{run_id}``, then sends
+        ``{kind}:{run_id}:resume:{checkpoint_version}:{digest8}`` for a
+        checkpoint-bound approval resume. Accepting exactly those two shapes
+        keeps the run identity bound without coupling Python to Go's JSON digest.
+        """
+
+        if requested_execution_id == stored_execution_id:
+            return True
+        return bool(
+            re.fullmatch(
+                rf"{re.escape(stored_execution_id)}:resume:{checkpoint_version}:[0-9a-f]{{16}}",
+                requested_execution_id,
+            )
         )
 
     def resume_agent(self, request: WorkflowResumeRequest) -> WorkflowResponse:

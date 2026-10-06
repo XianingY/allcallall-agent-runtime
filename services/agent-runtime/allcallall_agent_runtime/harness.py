@@ -4,6 +4,7 @@ from .config import config as app_config
 from .orchestration.harness import (
     AllCallAllAgentHarness,
     CheckpointConflictError,
+    CheckpointVersionConflictError,
     HarnessTimeoutExceeded,
     get_harness,
     get_workflow_graph,
@@ -16,6 +17,7 @@ from .orchestration.harness import (
 __all__ = [
     "AllCallAllAgentHarness",
     "CheckpointConflictError",
+    "CheckpointVersionConflictError",
     "HarnessTimeoutExceeded",
     "app_config",
     "get_harness",
