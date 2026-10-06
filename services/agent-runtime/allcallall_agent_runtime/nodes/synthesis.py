@@ -43,7 +43,7 @@ from ..synthesis import (
 )
 from ..deadline import ExecutionCancelled, get_current_deadline
 from ..state import GraphState
-from .role_router import EarlyTerminationThresholds, should_terminate_early
+from .role_router import CANONICAL_ROLE_ORDER, EarlyTerminationThresholds, should_terminate_early
 
 __all__ = [
     "EarlyTerminationThresholds",
@@ -90,11 +90,15 @@ def searcher(state: GraphState) -> GraphState:
         max_iterations=request.max_iterations.get("searcher", 3),
         tools=[READ_TOOL_CONTEXT_CHUNKS],
         bridge=state["tool_bridge"],
+        branch_cancel_event=state.get("branch_cancel_event"),
         enable_early_termination=app_config.enable_early_termination,
         goal_threshold=app_config.early_termination_goal_threshold,
         plateau_window=app_config.early_termination_plateau_window,
         evidence_threshold=app_config.early_termination_evidence_threshold,
         citation_threshold=app_config.early_termination_citation_threshold,
+        required_roles_complete=_prior_required_roles_complete(state, "searcher"),
+        unresolved_approval=bool(state.get("unresolved_approval", False)),
+        safety_blocked=bool(state.get("safety_blocked", False)),
     )
     trace.extend(result.react_trace)
     trace.append(TraceEvent(event="graph.node.completed", node="searcher", role="searcher"))
@@ -220,11 +224,15 @@ def bounded_react_search(
     tools: list[str],
     bridge: ToolBridgeLike,
     *,
+    branch_cancel_event: threading.Event | None = None,
     enable_early_termination: bool = False,
     goal_threshold: float = 0.7,
     plateau_window: int = 2,
     evidence_threshold: float = 0.8,
     citation_threshold: float = 0.8,
+    required_roles_complete: bool = False,
+    unresolved_approval: bool = True,
+    safety_blocked: bool = True,
 ) -> RoleResult:
     """Execute bounded ReAct search loop with determinable termination (Module 1).
 
@@ -235,6 +243,10 @@ def bounded_react_search(
     * ``goal_achieved``      — role-aware goal achievement score reached threshold,
     * ``confidence_plateau`` — per-round confidence flat for ``plateau_window`` rounds,
     * ``checkagent_early_stop`` — cheap deterministic CheckAgent inline signal.
+
+    Branch-local cancellation is checked at the top of every iteration and
+    immediately before and after every read-tool call, so sibling failures stop
+    cooperative work instead of waiting for the hard cap.
 
     Every exit is recorded in the attached :class:`TerminationSignal` so the
     downstream projection can report how many iterations were saved. With the
@@ -272,7 +284,7 @@ def bounded_react_search(
         )
 
     for iteration in range(1, max_iterations + 1):
-        _check_cancelled()
+        _check_cancelled(branch_cancel_event)
         tool_name = tools[0]
         if role == "risk_analyst" and iteration == max_iterations and READ_TOOL_RECENT_MEETINGS in tools:
             tool_name = READ_TOOL_RECENT_MEETINGS
@@ -306,7 +318,9 @@ def bounded_react_search(
         selected = select_chunks(request.context_chunks, role, iteration)
         observation_suffix = ""
         try:
+            _check_cancelled(branch_cancel_event)
             bridge_observation = bridge.execute_read_tool(request, tool_name, tool_input)
+            _check_cancelled(branch_cancel_event)
             if bridge_observation is not None:
                 selected = list(bridge_observation.chunks) or selected
                 observation_suffix = " via go_tool_bridge"
@@ -378,9 +392,9 @@ def bounded_react_search(
                 evidence_sufficiency=evidence_sufficiency,
                 citation_coverage=citation_coverage,
                 goal_coverage=goal_score,
-                required_roles_complete=True,
-                unresolved_approval=False,
-                safety_blocked=False,
+                required_roles_complete=required_roles_complete,
+                unresolved_approval=unresolved_approval,
+                safety_blocked=safety_blocked,
                 thresholds=thresholds,
             )
             if quality_gate_passed and goal_score >= goal_threshold:
@@ -612,9 +626,15 @@ def risk_analyst(state: GraphState) -> GraphState:
         max_iterations=request.max_iterations.get("risk_analyst", 2),
         tools=[READ_TOOL_CONTEXT_CHUNKS, READ_TOOL_RECENT_MEETINGS],
         bridge=state["tool_bridge"],
+        branch_cancel_event=state.get("branch_cancel_event"),
         enable_early_termination=app_config.enable_early_termination,
         goal_threshold=app_config.early_termination_goal_threshold,
         plateau_window=app_config.early_termination_plateau_window,
+        evidence_threshold=app_config.early_termination_evidence_threshold,
+        citation_threshold=app_config.early_termination_citation_threshold,
+        required_roles_complete=_prior_required_roles_complete(state, "risk_analyst"),
+        unresolved_approval=bool(state.get("unresolved_approval", False)),
+        safety_blocked=bool(state.get("safety_blocked", False)),
     )
     result.summary = f"Risk analyst inspected context with {len(result.react_trace)} bounded read-tool iteration(s)."
     result.risk_flags = infer_risk_flags(request, result.snippets)
@@ -725,3 +745,17 @@ def _check_cancelled(branch_cancel_event: threading.Event | None = None) -> None
     deadline = get_current_deadline()
     if deadline is not None:
         deadline.raise_if_cancelled()
+
+
+def _prior_required_roles_complete(state: GraphState, current_role: str) -> bool:
+    """Return whether every role before ``current_role`` has produced a result."""
+    allocation = state.get("role_allocation")
+    ordered_roles = allocation.roles if allocation is not None else list(CANONICAL_ROLE_ORDER)
+    if current_role not in ordered_roles:
+        return False
+    prior_roles = {
+        "summarizer" if role == "synthesize" else role
+        for role in ordered_roles[: ordered_roles.index(current_role)]
+    }
+    completed_roles = {result.role for result in state.get("role_results", [])}
+    return prior_roles <= completed_roles

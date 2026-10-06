@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import threading
 import time
 from typing import Any, Callable, Sequence, TypedDict, cast
@@ -66,16 +66,61 @@ _SNAPSHOT_MODEL_KEYS = ("context_sufficiency", "evidence_pack")
 
 @dataclass(slots=True)
 class GroupReservation:
-    """Idempotent reservation of one bounded role group's resources."""
+    """Thread-safe reservation of one bounded role group's resources."""
 
     roles: tuple[str, ...]
     token_budget: int
     provider_calls: int
+    used_tokens: int = 0
+    used_provider_calls: int = 0
+    _role_tokens: dict[str, int] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _released: bool = False
 
+    def acquire(self, role: str, estimated_tokens: int) -> None:
+        """Acquire one role's token and provider-call share."""
+        with self._lock:
+            if self._released:
+                raise RuntimeError("group reservation has already been released")
+            if role not in self.roles:
+                raise ValueError(f"role {role!r} is not part of this group reservation")
+            if role in self._role_tokens:
+                raise RuntimeError(f"role {role!r} is already reserved")
+            if estimated_tokens < 0:
+                raise ValueError("estimated_tokens must not be negative")
+            if self.used_tokens + estimated_tokens > self.token_budget:
+                raise GroupBudgetExceeded(
+                    f"token budget {self.token_budget} cannot reserve {role!r}"
+                )
+            if self.used_provider_calls + 1 > self.provider_calls:
+                raise GroupBudgetExceeded(
+                    f"provider-call budget {self.provider_calls} cannot reserve {role!r}"
+                )
+            self.used_tokens += estimated_tokens
+            self.used_provider_calls += 1
+            self._role_tokens[role] = estimated_tokens
+
+    def release_role(self, role: str) -> None:
+        """Release one role's token and provider-call share."""
+        with self._lock:
+            if self._released or role not in self._role_tokens:
+                return
+            self.used_tokens -= self._role_tokens.pop(role)
+            self.used_provider_calls -= 1
+
     def release(self) -> None:
-        if not self._released:
+        """Release the whole group reservation exactly once."""
+        with self._lock:
+            if self._released:
+                return
             self._released = True
+            self.used_tokens = 0
+            self.used_provider_calls = 0
+            self._role_tokens.clear()
+
+
+class GroupBudgetExceeded(RuntimeError):
+    """Raised when a bounded role group cannot reserve enough capacity."""
 
 
 def estimate_role_tokens(state: GraphState, role: str) -> int:
@@ -167,13 +212,20 @@ def _run_role(role: str, state: GraphState, cancel_event: threading.Event) -> Ro
 def merge_role_deltas(
     deltas: Sequence[RoleDelta],
     canonical_order: Sequence[str],
+    *,
+    parent_trace_events: Sequence[TraceEvent] | None = None,
+    parent_role_results: Sequence[RoleResult] | None = None,
 ) -> dict[str, Any]:
     """Merge branch-local deltas into deterministic graph-state updates."""
     by_role = {delta["role"]: delta for delta in deltas}
     ordered_roles = [role for role in canonical_order if role in by_role]
 
-    trace_events: list[TraceEvent] = []
-    role_results: list[RoleResult] = []
+    parent_trace = list(parent_trace_events or [])
+    parent_results = list(parent_role_results or [])
+    trace_events: list[TraceEvent] = parent_trace
+    role_results: list[RoleResult] = [
+        result for result in parent_results if result.role not in by_role
+    ]
     citations: list[Citation] = []
     action_items: list[str] = []
     risk_flags: list[str] = []
@@ -214,7 +266,7 @@ def _cancel_group(futures: dict[str, Future[RoleDelta]], cancel_event: threading
     for future in futures.values():
         future.cancel()
     if futures:
-        wait(futures.values())
+        wait(futures.values(), timeout=app_config.cancellation_grace_seconds)
 
 
 def execute_parallel_roles(
@@ -256,9 +308,11 @@ def execute_parallel_roles(
     deltas: list[RoleDelta] = []
 
     try:
+        reservation = _reserve_group_budget(tuple(ordered_roles), token_budget)
         if budget_allows_parallel:
-            reservation = _reserve_group_budget(tuple(ordered_roles), token_budget)
             worker_count = min(max_parallel, PARALLEL_MAX_ROLES, len(ordered_roles))
+            for role in ordered_roles:
+                reservation.acquire(role, estimate_role_tokens(state, role))
             with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="role-branch") as executor:
                 futures = {
                     role: executor.submit(_run_role, role, state, cancel_event)
@@ -266,7 +320,9 @@ def execute_parallel_roles(
                 }
                 try:
                     for future in as_completed(futures.values()):
-                        deltas.append(future.result())
+                        delta = future.result()
+                        reservation.release_role(delta["role"])
+                        deltas.append(delta)
                 except BaseException as exc:
                     failed_role = next(
                         (
@@ -290,8 +346,11 @@ def execute_parallel_roles(
             parallel_role_groups_total.labels(mode="parallel", outcome="completed").inc()
         else:
             for role in ordered_roles:
+                reservation.acquire(role, estimate_role_tokens(state, role))
                 try:
-                    deltas.append(_run_role(role, state, cancel_event))
+                    delta = _run_role(role, state, cancel_event)
+                    reservation.release_role(role)
+                    deltas.append(delta)
                 except BaseException as exc:
                     cancel_event.set()
                     deltas.clear()
@@ -315,7 +374,7 @@ def execute_parallel_roles(
 
 
 def parallel_roles_node(state: GraphState) -> GraphState:
-    """LangGraph node for the searcher/memory_agent independent group."""
+    """Merge a bounded searcher/memory_agent group into its parent graph state."""
     allocation = state.get("role_allocation")
     if allocation is None:
         raise ValueError("parallel_roles requires a role allocation")
@@ -326,4 +385,12 @@ def parallel_roles_node(state: GraphState) -> GraphState:
         max_parallel=PARALLEL_MAX_ROLES,
         token_budget=app_config.parallel_role_token_budget,
     )
-    return cast(GraphState, merge_role_deltas(deltas, CANONICAL_ROLE_ORDER))
+    return cast(
+        GraphState,
+        merge_role_deltas(
+            deltas,
+            CANONICAL_ROLE_ORDER,
+            parent_trace_events=state.get("trace_events", []),
+            parent_role_results=state.get("role_results", []),
+        ),
+    )

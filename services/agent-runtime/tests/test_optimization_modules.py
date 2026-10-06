@@ -153,6 +153,9 @@ def test_early_termination_goal_achieved_saves_iterations() -> None:
         bridge=bridge,
         enable_early_termination=True,
         goal_threshold=0.7,
+        required_roles_complete=True,
+        unresolved_approval=False,
+        safety_blocked=False,
     )
     sig = result.termination_signal
     assert sig is not None and sig.triggered

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from enum import Enum
 from pathlib import Path
 from typing import Callable
 
@@ -24,9 +25,49 @@ DEFAULT_OUT = Path(__file__).resolve().parents[1] / "evals" / "reports"
 _DEFAULT_RUN_WORKFLOW = run_workflow
 
 
-def run_eval(fixture: Path = DEFAULT_FIXTURE) -> WorkflowEvalReport:
+
+class EvalMode(str, Enum):
+    """Explicit feature mode used by the regression evaluator."""
+
+    BASELINE = "baseline"
+    ROLE_ROUTER = "role_router"
+    PARALLEL_ROLES = "parallel_roles"
+    EARLY_TERMINATION = "early_termination"
+
+
+def _feature_flags_for_mode(mode: EvalMode) -> dict[str, bool]:
+    if mode is EvalMode.BASELINE:
+        return {
+            "enable_role_router": False,
+            "enable_parallel_roles": False,
+            "enable_early_termination": False,
+        }
+    if mode is EvalMode.ROLE_ROUTER:
+        return {
+            "enable_role_router": True,
+            "enable_parallel_roles": False,
+            "enable_early_termination": False,
+        }
+    if mode is EvalMode.PARALLEL_ROLES:
+        return {
+            "enable_role_router": True,
+            "enable_parallel_roles": True,
+            "enable_early_termination": False,
+        }
+    return {
+        "enable_role_router": True,
+        "enable_parallel_roles": False,
+        "enable_early_termination": True,
+    }
+
+
+def run_eval(
+    fixture: Path = DEFAULT_FIXTURE,
+    *,
+    mode: EvalMode = EvalMode.ROLE_ROUTER,
+) -> WorkflowEvalReport:
     cases = load_cases(fixture)
-    results = [evaluate_case(item) for item in cases]
+    results = [evaluate_case(item, mode=mode) for item in cases]
     provider_name = create_provider().name
     return WorkflowEvalReport(
         provider=provider_name,
@@ -46,17 +87,21 @@ def evaluate_case(
     case: WorkflowEvalCase,
     *,
     run_workflow: Callable[[WorkflowRequest], WorkflowResponse] = run_workflow,
+    mode: EvalMode = EvalMode.ROLE_ROUTER,
 ) -> WorkflowEvalCaseResult:
     request = case.request.model_copy(update={"preset": case.preset, "goal": case.goal})
-    previous_role_router = app_config.enable_role_router
+    feature_flags = _feature_flags_for_mode(mode)
+    previous_flags = {name: getattr(app_config, name) for name in feature_flags}
+    for name, value in feature_flags.items():
+        setattr(app_config, name, value)
     uses_default_workflow = run_workflow is _DEFAULT_RUN_WORKFLOW
-    app_config.enable_role_router = True
     if uses_default_workflow:
         reset_harness()
     try:
         response = run_workflow(request)
     finally:
-        app_config.enable_role_router = previous_role_router
+        for name, value in previous_flags.items():
+            setattr(app_config, name, value)
         if uses_default_workflow:
             reset_harness()
     text = " ".join(
@@ -315,8 +360,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run Python LangGraph task eval fixtures.")
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    parser.add_argument(
+        "--mode",
+        type=EvalMode,
+        choices=list(EvalMode),
+        default=EvalMode.ROLE_ROUTER,
+        help="Feature mode used when running the fixture",
+    )
     args = parser.parse_args()
-    report = run_eval(args.fixture)
+    report = run_eval(args.fixture, mode=args.mode)
     write_report(report, args.out)
     print(f"python agent eval: {report.summary.passed_cases}/{report.summary.total_cases} passed")
     print(f"wrote report to {args.out}")
