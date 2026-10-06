@@ -7,6 +7,7 @@ import httpx
 
 import allcallall_agent_runtime.config as _cfg
 from allcallall_agent_runtime.config import AgentRuntimeConfig
+from allcallall_agent_runtime.http_requests import build_http_client, post_json_without_cookies
 from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import ContextChunk, RetrievalPlan, RetrievalPlanStep, WorkflowRequest
 from allcallall_agent_runtime.deadline import current_retry_budget
@@ -44,7 +45,7 @@ class RAGRuntimeClient:
     @property
     def _client(self) -> httpx.Client:
         if self._http is None:
-            self._http = httpx.Client(timeout=self.timeout_sec)
+            self._http = build_http_client(self._settings)
         return self._http
 
     def configured(self) -> bool:
@@ -73,7 +74,13 @@ class RAGRuntimeClient:
 
         def _call() -> httpx.Response:
             try:
-                response = self._client.post(f"{self.base_url}/v1/retrieval/agentic", json=payload)
+                response = post_json_without_cookies(
+                    self._client,
+                    f"{self.base_url}/v1/retrieval/agentic",
+                    payload=payload,
+                    headers={},
+                    timeout_sec=self.timeout_sec,
+                )
             except httpx.HTTPError as exc:
                 raise RAGRuntimeError(f"rag runtime unavailable: {exc}", retryable=True) from exc
             if response.status_code == 429 or response.status_code >= 500:

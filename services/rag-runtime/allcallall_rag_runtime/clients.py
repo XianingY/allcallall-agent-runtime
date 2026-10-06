@@ -6,24 +6,8 @@ import httpx
 
 from .config import RAGRuntimeConfig
 from .go_bridge import GoRetrievalBridge
+from .http_requests import build_http_client
 from .qdrant_adapter import QdrantAdapter
-
-
-def _http_client(config: RAGRuntimeConfig) -> httpx.Client:
-    """Create a bounded, process-owned HTTP client."""
-    return httpx.Client(
-        limits=httpx.Limits(
-            max_connections=config.http_max_connections,
-            max_keepalive_connections=config.http_max_keepalive_connections,
-            keepalive_expiry=config.http_keepalive_expiry_sec,
-        ),
-        timeout=httpx.Timeout(
-            connect=config.http_connect_timeout_sec,
-            read=config.http_read_timeout_sec,
-            write=config.http_write_timeout_sec,
-            pool=config.http_pool_timeout_sec,
-        ),
-    )
 
 
 class RAGClients:
@@ -40,6 +24,16 @@ class RAGClients:
         self.qdrant = qdrant
         self._owned_http = owned_http
         self._closed = False
+
+    @property
+    def owned_http(self) -> httpx.Client | None:
+        """Return the client owned by this bundle, if any."""
+        return self._owned_http
+
+    @property
+    def closed(self) -> bool:
+        """Whether close has already run."""
+        return self._closed
 
     def close(self) -> None:
         """Close the owned HTTP pool once; injected clients stay caller-owned."""
@@ -58,7 +52,7 @@ def build_rag_clients(
     """Build the process-lifetime RAG Runtime client bundle."""
     owned: httpx.Client | None = None
     if http_client is None:
-        http_client = _http_client(config)
+        http_client = build_http_client(config)
         owned = http_client
 
     return RAGClients(

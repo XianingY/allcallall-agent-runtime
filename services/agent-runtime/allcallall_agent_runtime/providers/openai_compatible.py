@@ -7,6 +7,7 @@ import httpx
 
 import allcallall_agent_runtime.config as _cfg
 from allcallall_agent_runtime.config import AgentRuntimeConfig
+from allcallall_agent_runtime.http_requests import build_http_client, post_json_without_cookies
 from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import WorkflowRequest
 from allcallall_agent_runtime.prompts import structured_prompt_for
@@ -45,7 +46,7 @@ class OpenAICompatibleProvider:
         # (e.g. a DAG workflow invokes the provider multiple times) instead of
         # opening a fresh socket per request.
         if self._http is None:
-            self._http = httpx.Client(timeout=self.timeout_sec)
+            self._http = build_http_client(self._settings)
         return self._http
 
     def synthesize(self, request: WorkflowRequest, snippets: list[str]) -> ProviderSynthesis | None:
@@ -64,7 +65,13 @@ class OpenAICompatibleProvider:
 
         def _call() -> httpx.Response:
             try:
-                response = self._client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
+                response = post_json_without_cookies(
+                    self._client,
+                    f"{self.base_url}/chat/completions",
+                    payload=payload,
+                    headers=headers,
+                    timeout_sec=self.timeout_sec,
+                )
             except httpx.TimeoutException as exc:
                 raise ProviderError(
                     f"openai compatible provider timed out: {exc}",

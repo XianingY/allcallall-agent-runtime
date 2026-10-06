@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import httpx
 
 from .config import RAGRuntimeConfig, config as default_config
+from .http_requests import build_http_client, post_json_without_cookies
+from .metrics import metrics
 from .models import ContextChunk, RetrievalQueryRequest
+
+logger = logging.getLogger(__name__)
 
 
 class QdrantAdapterError(RuntimeError):
     """Raised when the optional Qdrant adapter cannot complete a request."""
+
+    def __init__(self, message: str, *, error_type: str = "http") -> None:
+        super().__init__(message)
+        self.error_type = error_type
 
 
 class QdrantAdapter:
@@ -41,22 +50,43 @@ class QdrantAdapter:
         endpoint = "search" if request.query_vector else "scroll"
         try:
             if self._http is None:
-                with httpx.Client(timeout=self.timeout) as client:
-                    response = client.post(
+                with build_http_client(self._settings) as client:
+                    response = post_json_without_cookies(
+                        client,
                         f"{self.url}/collections/{self.collection}/points/{endpoint}",
-                        json=payload,
+                        payload=payload,
                         headers=self._headers(),
+                        timeout_sec=self.timeout,
                     )
             else:
-                response = self._http.post(
+                response = post_json_without_cookies(
+                    self._http,
                     f"{self.url}/collections/{self.collection}/points/{endpoint}",
-                    json=payload,
+                    payload=payload,
                     headers=self._headers(),
+                    timeout_sec=self.timeout,
                 )
+        except httpx.PoolTimeout as exc:
+            metrics.inc("rag_runtime_qdrant_pool_timeouts_total")
+            logger.warning(
+                "rag_runtime_qdrant_pool_timeout",
+                extra={"error_type": "pool_timeout"},
+            )
+            raise QdrantAdapterError("qdrant connection pool timed out", error_type="pool_timeout") from exc
         except httpx.HTTPError as exc:
-            raise QdrantAdapterError(str(exc)) from exc
+            metrics.inc("rag_runtime_qdrant_errors_total")
+            logger.warning(
+                "rag_runtime_qdrant_http_error",
+                extra={"error_type": "network"},
+            )
+            raise QdrantAdapterError("qdrant unavailable", error_type="network") from exc
         if response.status_code >= 400:
-            raise QdrantAdapterError(f"qdrant returned HTTP {response.status_code}")
+            metrics.inc("rag_runtime_qdrant_errors_total")
+            logger.warning(
+                "rag_runtime_qdrant_http_error",
+                extra={"error_type": "http_status"},
+            )
+            raise QdrantAdapterError(f"qdrant returned HTTP {response.status_code}", error_type="http_status")
         return self._parse_response(response.json(), vector_search=bool(request.query_vector))
 
     def _headers(self) -> dict[str, str]:

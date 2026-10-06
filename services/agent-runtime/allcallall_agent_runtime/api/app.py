@@ -56,46 +56,50 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
     set_invoke_executor(executor)
 
     global _lifespan_clients
-    clients = build_runtime_clients(runtime_config)
-    _lifespan_clients = clients
-    application.state.clients = clients
-    harness = build_agent_harness(
-        provider=clients.provider,
-        tool_layer=clients.tool_bridge,
-        rag_runtime=clients.rag_runtime,
-    )
-    set_harness(harness)
-    application.state.harness = harness
-
+    clients: RuntimeClients | None = None
     worker_thread: threading.Thread | None = None
     worker: ToolQueueWorker | None = None
-    if runtime_config.enable_tool_queue:
-        worker = ToolQueueWorker(get_default_tool_queue(), _tool_queue_executor)
-        worker_thread = threading.Thread(
-            target=worker.run,
-            name="agent-tool-queue-worker",
-            daemon=True,
+    try:
+        clients = build_runtime_clients(runtime_config)
+        _lifespan_clients = clients
+        application.state.clients = clients
+        harness = build_agent_harness(
+            provider=clients.provider,
+            tool_layer=clients.tool_bridge,
+            rag_runtime=clients.rag_runtime,
         )
-        worker_thread.start()
+        set_harness(harness)
+        application.state.harness = harness
 
-    logger.info(
-        "agent runtime starting: configured_active=%d effective_active=%d "
-        "queue_limit=%d provider=%s checkpoint_pool_size=%d",
-        runtime_config.max_active_runs,
-        effective_active,
-        runtime_config.max_queued_runs,
-        runtime_config.provider,
-        runtime_config.checkpoint_mysql_pool_size,
-    )
-    yield
-    if worker is not None:
-        worker.stop()
-    if worker_thread is not None:
-        worker_thread.join(timeout=1.5)
-    clients.close()
-    _lifespan_clients = None
-    reset_harness()
-    shutdown_invoke_executor(wait=False)
+        if runtime_config.enable_tool_queue:
+            worker = ToolQueueWorker(get_default_tool_queue(), _tool_queue_executor)
+            worker_thread = threading.Thread(
+                target=worker.run,
+                name="agent-tool-queue-worker",
+                daemon=True,
+            )
+            worker_thread.start()
+
+        logger.info(
+            "agent runtime starting: configured_active=%d effective_active=%d "
+            "queue_limit=%d provider=%s checkpoint_pool_size=%d",
+            runtime_config.max_active_runs,
+            effective_active,
+            runtime_config.max_queued_runs,
+            runtime_config.provider,
+            runtime_config.checkpoint_mysql_pool_size,
+        )
+        yield
+    finally:
+        if worker is not None:
+            worker.stop()
+        if worker_thread is not None:
+            worker_thread.join(timeout=runtime_config.tool_queue_worker_join_timeout_sec)
+        if clients is not None:
+            clients.close()
+        _lifespan_clients = None
+        reset_harness()
+        shutdown_invoke_executor(wait=False)
 
 
 def create_app() -> FastAPI:

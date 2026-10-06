@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from allcallall_rag_runtime.api import create_app
+from allcallall_rag_runtime.clients import build_rag_clients
 from allcallall_rag_runtime.config import config
+from allcallall_rag_runtime.config import RAGRuntimeConfig
 from allcallall_rag_runtime.eval_runner import load_cases, run_eval
 from allcallall_rag_runtime.main import app
 from allcallall_rag_runtime.models import AgenticRetrievalRequest, ContextChunk
+from allcallall_rag_runtime.metrics import metrics
 from allcallall_rag_runtime.pipeline import select_retrieval_chunks
+from allcallall_rag_runtime.go_bridge import GoRetrievalBridge
 from allcallall_rag_runtime.qdrant_adapter import QdrantAdapter
 from allcallall_rag_runtime.llamaindex_adapter import run_fixture_retrieval
 from allcallall_rag_runtime.retrieval import (
@@ -21,6 +28,94 @@ from allcallall_rag_runtime.retrieval import (
     rerank,
     route_query,
 )
+
+
+def _rag_config(**overrides: object) -> RAGRuntimeConfig:
+    defaults: dict[str, object] = dict(
+        tool_bridge_base_url="http://test-go-bridge",
+        tool_bridge_token="test-token",
+        tool_bridge_timeout_sec=2.5,
+        vector_store="qdrant",
+        qdrant_url="http://test-qdrant",
+        qdrant_collection="chunks",
+        qdrant_timeout_sec=3.5,
+    )
+    defaults.update(overrides)
+    return RAGRuntimeConfig(**defaults)  # type: ignore[arg-type]
+
+
+def _retrieval_request() -> AgenticRetrievalRequest:
+    return AgenticRetrievalRequest(
+        organization_id=1,
+        user_id=2,
+        conversation_id=3,
+        query="policy",
+        query_vector=[0.1, 0.2],
+        top_k=3,
+        chunks=[
+            ContextChunk(
+                chunk_id="inline",
+                source_type="knowledge",
+                source_id="inline-1",
+                snippet="inline fallback",
+            )
+        ],
+    )
+
+
+class RAGRoutingTransport(httpx.BaseTransport):
+    def __init__(self, *, set_cookie: bool = False) -> None:
+        self.requests = 0
+        self.seen_requests: list[httpx.Request] = []
+        self.set_cookie = set_cookie
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self.requests += 1
+        self.seen_requests.append(request)
+        url = str(request.url)
+        response: httpx.Response
+        if "/agent/retrieval/query" in url:
+            response = httpx.Response(
+                200,
+                json={
+                    "chunks": [
+                        {
+                            "chunk_id": "go-1",
+                            "source_type": "knowledge",
+                            "source_id": "go-doc",
+                            "snippet": "go bridge result",
+                        }
+                    ]
+                },
+            )
+        elif "/points/search" in url:
+            response = httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "id": "qdrant-1",
+                            "score": 0.93,
+                            "payload": {
+                                "chunk_id": "qdrant-1",
+                                "source_type": "knowledge",
+                                "source_id": "doc-1",
+                                "title": "Policy",
+                                "snippet": "qdrant result",
+                            },
+                        }
+                    ]
+                },
+            )
+        else:
+            response = httpx.Response(200, json={})
+        if self.set_cookie and self.requests == 1:
+            response.headers["Set-Cookie"] = "session=tenant-one; Path=/"
+        return response
+
+
+def _metric_value(name: str) -> int:
+    return metrics.snapshot().get(name, 0)
 
 
 def test_app_factory_preserves_public_routes() -> None:
@@ -247,6 +342,124 @@ def test_qdrant_adapter_parses_vector_search(monkeypatch: pytest.MonkeyPatch) ->
 
     assert chunks[0].chunk_id == "qdrant-1"
     assert chunks[0].retrieval_mode == "qdrant_vector"
+
+
+def test_rag_clients_share_one_transport_and_preserve_service_timeouts() -> None:
+    transport = RAGRoutingTransport()
+    http = httpx.Client(transport=transport, timeout=99)
+    clients = build_rag_clients(_rag_config(), http_client=http)
+
+    clients.go_bridge.query(_retrieval_request())
+    clients.qdrant.query(_retrieval_request())
+
+    assert transport.requests == 2
+    actual_timeouts = [request.extensions["timeout"]["read"] for request in transport.seen_requests]
+    assert actual_timeouts == [2, 3.5]
+
+
+def test_rag_clients_do_not_replay_cookies_across_requests() -> None:
+    transport = RAGRoutingTransport(set_cookie=True)
+    http = httpx.Client(transport=transport)
+    clients = build_rag_clients(_rag_config(), http_client=http)
+
+    clients.go_bridge.query(_retrieval_request())
+    clients.go_bridge.query(_retrieval_request())
+
+    assert transport.requests == 2
+    assert all(request.headers.get("cookie") is None for request in transport.seen_requests)
+    assert not http.cookies
+
+
+def test_rag_clients_close_owned_client_once_and_keep_injected_caller_owned() -> None:
+    owned_bundle = build_rag_clients(_rag_config())
+    owned = owned_bundle.owned_http
+    assert owned is not None
+    with patch.object(owned, "close", wraps=owned.close) as owned_close:
+        owned_bundle.close()
+        owned_bundle.close()
+        owned_close.assert_called_once()
+    assert owned_bundle.owned_http is None
+    assert owned_bundle.closed is True
+
+    transport = RAGRoutingTransport()
+    http = httpx.Client(transport=transport)
+    injected_bundle = build_rag_clients(_rag_config(), http_client=http)
+    assert injected_bundle.owned_http is None
+    with patch.object(http, "close", wraps=http.close) as injected_close:
+        injected_bundle.close()
+        injected_close.assert_not_called()
+    clients = build_rag_clients(_rag_config(), http_client=http)
+    clients.go_bridge.query(_retrieval_request())
+    assert transport.requests == 1
+
+
+def test_go_bridge_pool_timeout_is_observable(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.PoolTimeout("pool exhausted")
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    bridge = GoRetrievalBridge(config=_rag_config(), http_client=http)
+    before = _metric_value("rag_runtime_go_bridge_pool_timeouts_total")
+
+    with caplog.at_level(logging.WARNING, logger="allcallall_rag_runtime.go_bridge"):
+        with pytest.raises(httpx.PoolTimeout):
+            bridge.query(_retrieval_request())
+
+    assert _metric_value("rag_runtime_go_bridge_pool_timeouts_total") == before + 1
+    assert any(
+        record.message == "rag_runtime_go_bridge_pool_timeout"
+        and record.error_type == "pool_timeout"
+        for record in caplog.records
+    )
+
+
+def test_qdrant_fallback_is_observable(caplog: pytest.LogCaptureFixture) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("unavailable")
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    config = _rag_config(
+        tool_bridge_base_url="",
+        tool_bridge_token="",
+    )
+    clients = build_rag_clients(config, http_client=http)
+    before = _metric_value("rag_runtime_qdrant_fallback_total")
+
+    with caplog.at_level(logging.WARNING, logger="allcallall_rag_runtime.pipeline"):
+        chunks, source = select_retrieval_chunks(_retrieval_request(), clients=clients)
+
+    assert [chunk.chunk_id for chunk in chunks] == ["inline"]
+    assert source == "inline"
+    assert _metric_value("rag_runtime_qdrant_fallback_total") == before + 1
+    assert any(
+        record.message == "rag_runtime_qdrant_fallback"
+        and record.error_type == "network"
+        for record in caplog.records
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "http_max_connections",
+        "http_max_keepalive_connections",
+        "http_keepalive_expiry_sec",
+        "http_connect_timeout_sec",
+        "http_read_timeout_sec",
+        "http_write_timeout_sec",
+        "http_pool_timeout_sec",
+    ],
+)
+def test_rag_http_pool_settings_must_be_positive(field: str) -> None:
+    with pytest.raises(ValidationError):
+        _rag_config(**{field: 0})
+
+
+def test_rag_keepalive_limit_cannot_exceed_total_connections() -> None:
+    with pytest.raises(ValidationError):
+        _rag_config(http_max_connections=2, http_max_keepalive_connections=3)
 
 
 def test_llamaindex_eval_baseline_is_deterministic() -> None:

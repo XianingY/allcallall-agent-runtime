@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from .models import ContextChunk, RetrievalQueryRequest
 from .clients import RAGClients, build_rag_clients
+from .metrics import metrics
 from .qdrant_adapter import QdrantAdapterError
 from .config import config as default_config
+
+logger = logging.getLogger(__name__)
+
 
 
 def select_retrieval_chunks(
@@ -23,7 +29,12 @@ def select_retrieval_chunks(
         if not bridge_chunks:
             try:
                 qdrant_chunks = owned_clients.qdrant.query(request)
-            except QdrantAdapterError:
+            except QdrantAdapterError as exc:
+                metrics.inc("rag_runtime_qdrant_fallback_total")
+                logger.warning(
+                    "rag_runtime_qdrant_fallback",
+                    extra={"error_type": exc.error_type},
+                )
                 qdrant_chunks = []
     finally:
         if clients is None:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Self
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -37,6 +40,23 @@ class RAGRuntimeConfig(BaseSettings):
     http_read_timeout_sec: float = 30.0
     http_write_timeout_sec: float = 10.0
     http_pool_timeout_sec: float = 10.0
+
+    @model_validator(mode="after")
+    def _validate_http_pool(self) -> Self:
+        http_fields = (
+            self.http_max_connections,
+            self.http_max_keepalive_connections,
+            self.http_keepalive_expiry_sec,
+            self.http_connect_timeout_sec,
+            self.http_read_timeout_sec,
+            self.http_write_timeout_sec,
+            self.http_pool_timeout_sec,
+        )
+        if any(value <= 0 for value in http_fields):
+            raise ValueError("all outbound HTTP pool and timeout settings must be positive")
+        if self.http_max_keepalive_connections > self.http_max_connections:
+            raise ValueError("http_max_keepalive_connections cannot exceed http_max_connections")
+        return self
 
     model_config = {"env_prefix": "PY_RAG_"}
 

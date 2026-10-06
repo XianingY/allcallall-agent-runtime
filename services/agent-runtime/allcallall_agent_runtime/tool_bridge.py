@@ -8,6 +8,7 @@ import httpx
 
 import allcallall_agent_runtime.config as _cfg
 from allcallall_agent_runtime.config import AgentRuntimeConfig
+from allcallall_agent_runtime.http_requests import build_http_client, post_json_without_cookies
 from .metrics import registry
 from .models import ContextChunk, WorkflowRequest
 from .deadline import current_retry_budget
@@ -46,7 +47,7 @@ class GoToolBridge:
     @property
     def _client(self) -> httpx.Client:
         if self._http is None:
-            self._http = httpx.Client(timeout=self.timeout_sec)
+            self._http = build_http_client(self._settings)
         return self._http
 
     def configured(self) -> bool:
@@ -73,10 +74,12 @@ class GoToolBridge:
 
         def _call() -> httpx.Response:
             try:
-                response = self._client.post(
+                response = post_json_without_cookies(
+                    self._client,
                     f"{self.base_url}/api/v1/internal/agent/tools/read",
-                    json=payload,
+                    payload=payload,
                     headers=headers,
+                    timeout_sec=self.timeout_sec,
                 )
             except httpx.HTTPError as exc:
                 raise ToolBridgeError(f"go tool bridge unavailable: {exc}", retryable=True) from exc
@@ -148,10 +151,12 @@ class GoToolBridge:
 
         def _call() -> httpx.Response:
             try:
-                response = self._client.post(
+                response = post_json_without_cookies(
+                    self._client,
                     f"{self.base_url}/api/v1/internal/agent/tools/write",
-                    json=payload,
+                    payload=payload,
                     headers=headers,
+                    timeout_sec=self.timeout_sec,
                 )
             except httpx.HTTPError as exc:
                 raise ToolBridgeError(f"go tool bridge unavailable: {exc}", retryable=True) from exc

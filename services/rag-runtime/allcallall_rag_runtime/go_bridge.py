@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import httpx
 
 from .config import RAGRuntimeConfig, config as default_config
+from .http_requests import build_http_client, post_json_without_cookies
+from .metrics import metrics
 from .models import ContextChunk, RetrievalQueryRequest
+
+logger = logging.getLogger(__name__)
 
 
 class GoRetrievalBridge:
@@ -37,20 +42,39 @@ class GoRetrievalBridge:
             "top_k": request.top_k,
         }
         headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
-        if self._http is None:
-            with httpx.Client(timeout=self.timeout_sec) as client:
-                response = client.post(
+        try:
+            if self._http is None:
+                with build_http_client(self._settings) as client:
+                    response = post_json_without_cookies(
+                        client,
+                        f"{self.base_url}/api/v1/internal/agent/retrieval/query",
+                        payload=payload,
+                        headers=headers,
+                        timeout_sec=self.timeout_sec,
+                    )
+            else:
+                response = post_json_without_cookies(
+                    self._http,
                     f"{self.base_url}/api/v1/internal/agent/retrieval/query",
-                    json=payload,
+                    payload=payload,
                     headers=headers,
+                    timeout_sec=self.timeout_sec,
                 )
-        else:
-            response = self._http.post(
-                f"{self.base_url}/api/v1/internal/agent/retrieval/query",
-                json=payload,
-                headers=headers,
+            response.raise_for_status()
+        except httpx.PoolTimeout:
+            metrics.inc("rag_runtime_go_bridge_pool_timeouts_total")
+            logger.warning(
+                "rag_runtime_go_bridge_pool_timeout",
+                extra={"error_type": "pool_timeout"},
             )
-        response.raise_for_status()
+            raise
+        except httpx.HTTPError as exc:
+            metrics.inc("rag_runtime_go_bridge_errors_total")
+            logger.warning(
+                "rag_runtime_go_bridge_http_error",
+                extra={"error_type": type(exc).__name__},
+            )
+            raise
         raw: dict[str, Any] = response.json()
         chunks = raw.get("chunks", [])
         if not isinstance(chunks, list):

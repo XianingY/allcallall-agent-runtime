@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import patch
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from allcallall_agent_runtime.admission import AdmissionController
-from allcallall_agent_runtime.api.app import create_app
+from allcallall_agent_runtime.api.app import _lifespan, create_app
 from allcallall_agent_runtime.harness import AllCallAllAgentHarness, get_harness
+from allcallall_agent_runtime.harness import shutdown_invoke_executor
 from allcallall_agent_runtime.main import app
 from allcallall_agent_runtime.models import AgentRunRequest, WorkflowResponse
 
@@ -96,3 +101,26 @@ def test_app_lifespan_injects_executor_into_harness() -> None:
 
     # After lifespan teardown, the executor should be shut down
     # (a new lazy one would be created on next access, but the injected one is gone)
+
+
+def test_app_lifespan_cleans_executor_when_client_startup_fails() -> None:
+    """A startup failure after executor creation must not leak the executor."""
+    created_app = create_app()
+
+    async def enter_lifespan() -> None:
+        async with _lifespan(created_app):
+            pass
+
+    try:
+        with (
+            patch("allcallall_agent_runtime.api.app.build_runtime_clients", side_effect=RuntimeError("startup failed")),
+            patch(
+                "allcallall_agent_runtime.api.app.shutdown_invoke_executor",
+                wraps=shutdown_invoke_executor,
+            ) as shutdown_spy,
+        ):
+            with pytest.raises(RuntimeError, match="startup failed"):
+                asyncio.run(enter_lifespan())
+            shutdown_spy.assert_called_once_with(wait=False)
+    finally:
+        shutdown_invoke_executor(wait=False)

@@ -5,27 +5,10 @@ from __future__ import annotations
 import httpx
 
 from .config import AgentRuntimeConfig
-from .providers.base import LLMProvider, RulesProvider
-from .providers.openai_compatible import OpenAICompatibleProvider
+from .http_requests import build_http_client
+from .providers.base import LLMProvider, create_provider
 from .rag_runtime_client import RAGRuntimeClient
 from .tool_layer import GoToolBridgeLayer
-
-
-def _http_client(config: AgentRuntimeConfig) -> httpx.Client:
-    """Create a bounded, process-owned HTTP client."""
-    return httpx.Client(
-        limits=httpx.Limits(
-            max_connections=config.http_max_connections,
-            max_keepalive_connections=config.http_max_keepalive_connections,
-            keepalive_expiry=config.http_keepalive_expiry_sec,
-        ),
-        timeout=httpx.Timeout(
-            connect=config.http_connect_timeout_sec,
-            read=config.http_read_timeout_sec,
-            write=config.http_write_timeout_sec,
-            pool=config.http_pool_timeout_sec,
-        ),
-    )
 
 
 class RuntimeClients:
@@ -45,6 +28,16 @@ class RuntimeClients:
         self._owned_http = owned_http
         self._closed = False
 
+    @property
+    def owned_http(self) -> httpx.Client | None:
+        """Return the client owned by this bundle, if any."""
+        return self._owned_http
+
+    @property
+    def closed(self) -> bool:
+        """Whether close has already run."""
+        return self._closed
+
     def close(self) -> None:
         """Close the owned HTTP pool once; injected clients stay caller-owned."""
         if self._closed:
@@ -62,13 +55,10 @@ def build_runtime_clients(
     """Build the process-lifetime Agent Runtime client bundle."""
     owned: httpx.Client | None = None
     if http_client is None:
-        http_client = _http_client(config)
+        http_client = build_http_client(config)
         owned = http_client
 
-    if config.provider.lower() == "openai_compatible":
-        provider: LLMProvider = OpenAICompatibleProvider(config=config, http_client=http_client)
-    else:
-        provider = RulesProvider()
+    provider: LLMProvider = create_provider(config=config, http_client=http_client)
 
     return RuntimeClients(
         provider=provider,
