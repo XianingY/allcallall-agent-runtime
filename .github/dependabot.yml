@@ -6,7 +6,21 @@ updates:
   # fixes those findings become actionable and block the next publish. This
   # weekly bump keeps the pins moving onto freshly patched base images.
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/services/agent-runtime"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    target-branch: "main"
+
+  - package-ecosystem: "docker"
+    directory: "/services/rag-runtime"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    target-branch: "main"
+
+  - package-ecosystem: "docker"
+    directory: "/services/sandbox-runner"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
