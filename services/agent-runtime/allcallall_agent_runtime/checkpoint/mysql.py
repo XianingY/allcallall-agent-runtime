@@ -30,6 +30,7 @@ from ..persistence.mysql_pool import (
     mysql_connection_factory as mysql_connection_factory,
 )
 from ..persistence.mysql_schema import initialize_checkpoint_schema
+from ..metrics import checkpoint_payload_bytes
 from .payload import project_checkpoint_state, serialized_checkpoint_size
 
 
@@ -890,6 +891,7 @@ class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
         """
         channel_values = dict(checkpoint.get("channel_values", {}))
         dirty = False
+        original_size = serialized_checkpoint_size(channel_values)
         # First, drop non-serializable objects (original behavior).
         for key, value in list(channel_values.items()):
             try:
@@ -898,15 +900,13 @@ class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
                 channel_values[key] = None
                 dirty = True
         # Second, project large state values to reduce checkpoint size.
-        original_size = serialized_checkpoint_size(channel_values)
         projected = project_checkpoint_state(channel_values)
         projected_size = serialized_checkpoint_size(projected)
         if projected is not channel_values:
             channel_values = projected
             dirty = True
-        # Emit byte histograms for observability (Task 12).
-        _checkpoint_original_bytes.inc(max(0, original_size // 1024))
-        _checkpoint_projected_bytes.inc(max(0, projected_size // 1024))
+        checkpoint_payload_bytes.labels(stage="original").observe(max(0, original_size))
+        checkpoint_payload_bytes.labels(stage="projected").observe(max(0, projected_size))
         if not dirty:
             return checkpoint
         return {**checkpoint, "channel_values": channel_values}
@@ -1072,25 +1072,3 @@ def optional_int(value: Any) -> int | None:
         return None
     parsed = int(value)
     return parsed if parsed > 0 else None
-
-# --- Task 12: checkpoint size histograms --- #
-class _SizeBucket:
-    """Simple size bucket counter for checkpoint byte histograms."""
-    __slots__ = ("_lock", "_buckets")
-
-    def __init__(self) -> None:
-        import threading
-        self._lock = threading.Lock()
-        self._buckets: dict[int, int] = {}
-
-    def inc(self, bucket_kb: int) -> None:
-        with self._lock:
-            self._buckets[bucket_kb] = self._buckets.get(bucket_kb, 0) + 1
-
-    def snapshot(self) -> dict[int, int]:
-        with self._lock:
-            return dict(self._buckets)
-
-
-_checkpoint_original_bytes = _SizeBucket()
-_checkpoint_projected_bytes = _SizeBucket()

@@ -406,7 +406,6 @@ def test_go_context_mode_does_not_call_rag() -> None:
     """go_context mode should use preloaded Go chunks without calling RAG."""
     plan = RetrievalPlan(enabled=True, intent_route=IntentRoute(required_source_types=["meeting_transcript"]))
     step = RetrievalPlanStep(step=1, query="test", source_scope="all")
-    request = _request_with_mode("go_context")
     gathered: list[ContextChunk] = []
 
     assert _should_call_rag("go_context", plan, step, gathered) is False
@@ -416,7 +415,6 @@ def test_rag_runtime_mode_always_calls_rag() -> None:
     """rag_runtime mode should always call RAG."""
     plan = RetrievalPlan(enabled=True, intent_route=IntentRoute(required_source_types=["meeting_transcript"]))
     step = RetrievalPlanStep(step=1, query="test", source_scope="all")
-    request = _request_with_mode("rag_runtime")
     gathered: list[ContextChunk] = []
 
     assert _should_call_rag("rag_runtime", plan, step, gathered) is True
@@ -426,7 +424,6 @@ def test_hybrid_mode_calls_rag_when_source_missing() -> None:
     """hybrid mode should call RAG when a required source type is missing."""
     plan = RetrievalPlan(enabled=True, intent_route=IntentRoute(required_source_types=["knowledge"]))
     step = RetrievalPlanStep(step=1, query="test", source_scope="knowledge")
-    request = _request_with_mode("hybrid")
     # gathered has meeting_transcript but not knowledge
     gathered = [_chunk("meeting_transcript")]
 
@@ -437,7 +434,6 @@ def test_hybrid_mode_skips_rag_when_sources_satisfied() -> None:
     """hybrid mode should skip RAG when all required sources are already gathered."""
     plan = RetrievalPlan(enabled=True, intent_route=IntentRoute(required_source_types=["meeting_transcript"]))
     step = RetrievalPlanStep(step=1, query="test", source_scope="all")
-    request = _request_with_mode("hybrid")
     gathered = [_chunk("meeting_transcript")]
 
     assert _should_call_rag("hybrid", plan, step, gathered) is False
@@ -447,6 +443,17 @@ def test_effective_retrieval_mode_defaults_to_hybrid() -> None:
     """Empty retrieval_mode should default to hybrid."""
     request = _request_with_mode("")
     assert _effective_retrieval_mode(request) == "hybrid"
+
+
+def test_retrieval_mode_model_default_is_hybrid() -> None:
+    request = MeetingBriefRequest(
+        organization_id=1,
+        user_id=1,
+        conversation_id=1,
+        workflow_run_id=1,
+        goal="Summarize the meeting.",
+    )
+    assert request.retrieval_mode == "hybrid"
 
 
 def test_effective_retrieval_mode_preserves_valid_values() -> None:
@@ -500,6 +507,8 @@ class TestPrepareCandidates:
         chunks = [_chunk("meeting_transcript", "a"), _chunk("meeting_transcript", "a")]
         prepared = prepare_candidates("test", chunks)
         assert len(prepared.chunks) == 1
+        assert prepared.chunk_count == len(prepared.chunks)
+        assert prepared.token_count == len(prepared.tokens)
 
     def test_prepare_candidates_filters_by_source_type(self) -> None:
         chunks = [_chunk("meeting_transcript"), _chunk("knowledge")]

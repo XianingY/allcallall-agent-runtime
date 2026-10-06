@@ -17,6 +17,7 @@ from allcallall_agent_runtime.checkpoint import (
     MySQLCheckpointSaver,
 )
 from allcallall_agent_runtime.checkpoint.mysql import mysql_connection_factory
+from allcallall_agent_runtime.models import ContextChunk, TraceEvent
 
 MYSQL_DSN = os.getenv("PY_AGENT_TEST_MYSQL_DSN", "").strip()
 pytestmark = pytest.mark.skipif(not MYSQL_DSN, reason="PY_AGENT_TEST_MYSQL_DSN is not configured")

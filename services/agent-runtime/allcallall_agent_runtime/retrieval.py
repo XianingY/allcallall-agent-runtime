@@ -32,6 +32,8 @@ class PreparedCandidates:
     chunks: tuple[ContextChunk, ...]
     tokens: tuple[str, ...]
     fingerprint: str  # SHA-256 prefix of chunk keys for change detection
+    chunk_count: int
+    token_count: int
 
 
 @dataclass
@@ -160,6 +162,8 @@ def prepare_candidates(
         chunks=tuple(deduped),
         tokens=tokens,
         fingerprint=fingerprint,
+        chunk_count=len(deduped),
+        token_count=len(tokens),
     )
 
 

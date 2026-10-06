@@ -13,21 +13,28 @@ Covers:
 from __future__ import annotations
 
 import json
+import base64
+from pathlib import Path
+from typing import Any, TypedDict
 
-import pytest
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import Checkpoint
+from langgraph.graph import END, StateGraph
 
+from allcallall_agent_runtime.checkpoint.mysql import MySQLCheckpointSaver
+from allcallall_agent_runtime.checkpoint.sqlite_saver import SQLiteCheckpointSaver
 from allcallall_agent_runtime.checkpoint.payload import (
     project_checkpoint_state,
     serialized_checkpoint_size,
 )
+from allcallall_agent_runtime.metrics import checkpoint_payload_bytes, get_default_prometheus_registry
 from allcallall_agent_runtime.models import (
     Citation,
     ContextChunk,
     ContextSufficiency,
     CriticResult,
     EvidencePack,
-    IntentRoute,
-    RetrievalPlan,
     RoleResult,
     TraceEvent,
 )
@@ -53,12 +60,22 @@ def _cite(source_type: str, source_id: str = "s1") -> Citation:
     )
 
 
-def _sample_state() -> dict:
+class _ResumeState(TypedDict):
+    reranked_context_chunks: list[ContextChunk]
+    summary: str
+
+
+def _consume_chunks(state: _ResumeState) -> dict[str, str]:
+    return {"summary": state["reranked_context_chunks"][0].snippet}
+
+
+def _sample_state() -> dict[str, Any]:
     """Build a representative state with all key categories."""
     return {
         "request": {"organization_id": 1, "user_id": 1, "conversation_id": 1, "workflow_run_id": 1, "goal": "test"},
         "provider": object(),  # Non-serializable runtime object
         "tool_bridge": object(),  # Non-serializable runtime object
+        "rag_runtime": object(),  # Request-scoped RAG client
         "retrieval_cache": object(),  # Per-run cache
         "trace_events": [
             TraceEvent(event="graph.node.started", node="collect_context", status="running"),
@@ -92,6 +109,10 @@ class TestProjectionRemovesRuntimeObjects:
         projected = project_checkpoint_state(_sample_state())
         assert "tool_bridge" not in projected
 
+    def test_rag_runtime_is_removed(self) -> None:
+        projected = project_checkpoint_state(_sample_state())
+        assert "rag_runtime" not in projected
+
     def test_retrieval_cache_is_removed(self) -> None:
         projected = project_checkpoint_state(_sample_state())
         assert "retrieval_cache" not in projected
@@ -123,24 +144,107 @@ class TestProjectionRetainsResumeState:
         assert len(projected["role_results"]) == 1
         assert projected["role_results"][0].role == "searcher"
 
+    def test_context_chunk_lists_are_preserved_for_existing_nodes(self) -> None:
+        state = _sample_state()
+        projected = project_checkpoint_state(state)
+        for key in (
+            "agentic_context_chunks",
+            "retrieved_context_chunks",
+            "reranked_context_chunks",
+        ):
+            assert projected[key] is state[key]
+            assert all(isinstance(chunk, ContextChunk) for chunk in projected[key])
 
-class TestProjectionCompactsChunkLists:
-    def test_chunk_list_becomes_references(self) -> None:
-        projected = project_checkpoint_state(_sample_state())
-        agentic = projected["agentic_context_chunks"]
-        assert isinstance(agentic, list)
-        assert len(agentic) == 2
-        # Each entry is a compact reference dict, not a full ContextChunk.
-        assert all(isinstance(ref, dict) for ref in agentic)
-        assert "snippet_hash" in agentic[0]
-        assert "chunk_id" in agentic[0]
 
-    def test_chunk_reference_has_no_full_snippet(self) -> None:
-        projected = project_checkpoint_state(_sample_state())
-        for ref in projected["reranked_context_chunks"]:
-            # Compact references have snippet_hash, not the full snippet text.
-            assert "snippet_hash" in ref
-            assert "snippet" not in ref or len(ref.get("snippet", "")) == 0
+class TestCheckpointResume:
+    def test_new_saver_resumes_with_context_chunks_accessible_to_nodes(self) -> None:
+        saver = SQLiteCheckpointSaver(":memory:")
+        graph = StateGraph(_ResumeState)
+        graph.add_node("consume", _consume_chunks)
+        graph.set_entry_point("consume")
+        graph.add_edge("consume", END)
+        app = graph.compile(checkpointer=saver, interrupt_before=["consume"])
+        config: RunnableConfig = {"configurable": {"thread_id": "task-12-new-checkpoint"}}
+        chunk = _chunk("meeting_transcript", "resume-1", snippet="resume-safe evidence")
+
+        app.invoke({"reranked_context_chunks": [chunk], "summary": ""}, config)
+        result = app.invoke(None, config)
+
+        assert result is not None
+        assert result["summary"] == "resume-safe evidence"
+
+    def test_checkpoint_projection_observes_prometheus_size_histogram(self) -> None:
+        registry = get_default_prometheus_registry()
+        assert checkpoint_payload_bytes is not None
+        saver = object.__new__(MySQLCheckpointSaver)
+        saver.serde = JsonPlusSerializer()
+        checkpoint: Checkpoint = {
+            "v": 1,
+            "id": "metrics-checkpoint",
+            "ts": "2026-10-06T00:00:00+00:00",
+            "channel_values": {
+                "provider": object(),
+                "trace_events": [TraceEvent(event="test", node="test", status="completed")],
+                "summary": "checkpoint payload",
+            },
+            "channel_versions": {},
+            "versions_seen": {},
+            "updated_channels": [],
+        }
+
+        original_before = registry.get_sample_value(
+            "checkpoint_payload_bytes_count", {"stage": "original"}
+        ) or 0.0
+        projected_before = registry.get_sample_value(
+            "checkpoint_payload_bytes_count", {"stage": "projected"}
+        ) or 0.0
+
+        saver._drop_unserializable_channels(checkpoint)
+
+        original_after = registry.get_sample_value(
+            "checkpoint_payload_bytes_count", {"stage": "original"}
+        )
+        projected_after = registry.get_sample_value(
+            "checkpoint_payload_bytes_count", {"stage": "projected"}
+        )
+        assert original_after is not None and original_after > original_before
+        assert projected_after is not None and projected_after > projected_before
+
+    def test_new_saver_resumes_pre_change_checkpoint_fixture(self, tmp_path: Path) -> None:
+        fixture_path = Path(__file__).parent / "fixtures" / "task12_pre_change_checkpoint.json"
+        fixture = json.loads(fixture_path.read_text())
+        saver = SQLiteCheckpointSaver(str(tmp_path / "pre-change.sqlite"))
+        with saver._conn:
+            saver._conn.execute(
+                "INSERT INTO langgraph_checkpoint_threads "
+                "(thread_id, checkpoint_ns, current_version, updated_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)",
+                (fixture["thread_id"], ""),
+            )
+            saver._conn.execute(
+                "INSERT INTO langgraph_checkpoints "
+                "(thread_id, checkpoint_ns, checkpoint_id, version, checkpoint_type, checkpoint_blob, "
+                "metadata_type, metadata_blob, created_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                (
+                    fixture["thread_id"],
+                    "",
+                    fixture["checkpoint_id"],
+                    fixture["checkpoint_type"],
+                    base64.b64decode(fixture["checkpoint_blob"]),
+                    fixture["metadata_type"],
+                    base64.b64decode(fixture["metadata_blob"]),
+                ),
+            )
+
+        graph = StateGraph(_ResumeState)
+        graph.add_node("consume", _consume_chunks)
+        graph.set_entry_point("consume")
+        graph.add_edge("consume", END)
+        app = graph.compile(checkpointer=saver, interrupt_before=["consume"])
+        config: RunnableConfig = {"configurable": {"thread_id": fixture["thread_id"]}}
+        result = app.invoke(None, config)
+
+        assert result is not None
+        assert result["summary"] == "resume-safe evidence"
 
 
 class TestProjectionCompactsTraceEvents:
@@ -156,17 +260,14 @@ class TestProjectionCompactsTraceEvents:
         assert "metadata" not in events[0]
 
 
-class TestProjectionCompactsCitations:
-    def test_citations_are_compacted(self) -> None:
-        projected = project_checkpoint_state(_sample_state())
+class TestProjectionPreservesCitations:
+    def test_citations_are_preserved_for_existing_nodes(self) -> None:
+        state = _sample_state()
+        projected = project_checkpoint_state(state)
         cites = projected["citations"]
-        assert isinstance(cites, list)
+        assert cites is state["citations"]
         assert len(cites) == 2
-        # Compacted citations have truncated snippets.
-        for cite in cites:
-            assert "chunk_id" in cite
-            assert "source_type" in cite
-            assert len(cite.get("snippet", "")) <= 120
+        assert all(isinstance(cite, Citation) for cite in cites)
 
 
 class TestSerializedCheckpointSize:
@@ -206,6 +307,6 @@ class TestCompatibilityOldSerializerOutput:
         }
         projected = project_checkpoint_state(state)
         assert len(projected["agentic_context_chunks"]) == 1
-        assert projected["agentic_context_chunks"][0]["chunk_id"] == "mt-1"
+        assert projected["agentic_context_chunks"] == state["agentic_context_chunks"]
         assert len(projected["citations"]) == 1
         assert projected["citations"][0]["chunk_id"] == "mt-1"

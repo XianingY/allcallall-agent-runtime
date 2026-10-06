@@ -124,6 +124,13 @@ checkpoint_operation_errors_total = Counter(
     ["operation"],
     registry=_default_registry,
 )
+checkpoint_payload_bytes = Histogram(
+    "checkpoint_payload_bytes",
+    "Checkpoint channel payload size in bytes before and after projection",
+    ["stage"],  # bounded: original | projected
+    buckets=[1_000, 10_000, 100_000, 500_000, 1_000_000, 4_000_000, 8_000_000, 16_000_000],
+    registry=_default_registry,
+)
 
 # --- Payload ---
 payload_bytes = Histogram(

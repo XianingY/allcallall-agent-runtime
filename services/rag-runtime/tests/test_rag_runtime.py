@@ -14,8 +14,13 @@ from allcallall_rag_runtime.clients import build_rag_clients
 from allcallall_rag_runtime.config import config
 from allcallall_rag_runtime.config import RAGRuntimeConfig
 from allcallall_rag_runtime.eval_runner import load_cases, run_eval
+from allcallall_rag_runtime import retrieval as retrieval_module
 from allcallall_rag_runtime.main import app
-from allcallall_rag_runtime.models import AgenticRetrievalRequest, ContextChunk
+from allcallall_rag_runtime.models import (
+    AgenticRetrievalRequest,
+    ContextChunk,
+    RetrievalQueryRequest,
+)
 from allcallall_rag_runtime.metrics import metrics
 from allcallall_rag_runtime.pipeline import select_retrieval_chunks
 from allcallall_rag_runtime.go_bridge import GoRetrievalBridge
@@ -62,6 +67,12 @@ def _retrieval_request() -> AgenticRetrievalRequest:
             )
         ],
     )
+
+
+def test_retrieval_request_omits_unused_agent_cache_fields() -> None:
+    """The agent owns cache identity; RAG should not expose dead fields."""
+    assert "context_fingerprint" not in RetrievalQueryRequest.model_fields
+    assert "corpus_version" not in RetrievalQueryRequest.model_fields
 
 
 class RAGRoutingTransport(httpx.BaseTransport):
@@ -498,6 +509,23 @@ class TestPrepareCandidates:
         ]
         prepared = prepare_candidates("approval", chunks)
         assert prepared.chunk_count == 1
+        assert len(prepared.chunks) == 1
+        assert prepared.token_count == len(prepared.tokens)
+
+    def test_rerank_prepared_uses_prepared_candidates(self) -> None:
+        chunks = [
+            ContextChunk(
+                chunk_id="kb-1",
+                source_type="knowledge",
+                source_id="1",
+                snippet="approval checklist requires QA signoff",
+                score=95,
+            )
+        ]
+        prepared = prepare_candidates("approval checklist", chunks)
+        response = rerank_prepared(prepared, top_k=1)
+        assert len(response.chunks) == 1
+        assert response.chunks[0].chunk_id == "kb-1"
 
     def test_prepare_candidates_filters_by_source_type(self) -> None:
         chunks = [
@@ -525,6 +553,45 @@ class TestPrepareCandidates:
 
 
 class TestRerankReuse:
+    def test_agentic_retrieve_skips_duplicate_rerank_calls(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        chunks = [
+            ContextChunk(
+                chunk_id="mt1",
+                source_type="meeting_transcript",
+                source_id="segment-1",
+                snippet="The meeting identified supplier approval delay as the launch risk.",
+                score=90,
+            )
+        ]
+        rerank_calls = 0
+        original_rerank = retrieval_module.rerank
+
+        def counting_rerank(*args: object, **kwargs: object) -> object:
+            nonlocal rerank_calls
+            rerank_calls += 1
+            return original_rerank(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(retrieval_module, "rerank", counting_rerank)
+        response = agentic_retrieve(
+            AgenticRetrievalRequest(
+                query="launch risk",
+                source_types=["meeting_transcript"],
+                chunks=chunks,
+                top_k=1,
+                min_confidence=0.99,
+                max_steps=2,
+            ),
+            chunks,
+        )
+
+        assert rerank_calls == 1
+        assert any(event.get("event") == "rag.rerank_skipped" for event in response.trace)
+        assert any(
+            event.get("event") == "rag.final_rerank_skipped" for event in response.trace
+        )
+
     def test_agentic_retrieve_skips_rerank_for_unchanged_candidates(self) -> None:
         """When the candidate fingerprint is unchanged between steps, the final
         rerank should be skipped (evidenced by a trace event)."""

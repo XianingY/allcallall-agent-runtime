@@ -36,8 +36,6 @@ class RetrievalQueryRequest(BaseModel):
     top_k: int = 8
     query_vector: list[float] = Field(default_factory=list)
     chunks: list[ContextChunk] = Field(default_factory=list)
-    context_fingerprint: str = ""  # SHA-256 prefix of caller's context chunk keys
-    corpus_version: str = ""  # Opaque version tag for the indexed corpus
 
     @field_validator("chunks", "source_types", "query_vector", mode="before")
     @classmethod
@@ -71,12 +69,14 @@ class RerankResponse(BaseModel):
 class PreparedCandidates(BaseModel):
     """Normalized, filtered, deduplicated, and tokenized candidates ready for reranking.
 
-    Computed once per unique (query, source_types, context_fingerprint, corpus_version)
-    and reused when those inputs are unchanged, avoiding redundant reranking.
+    Computed once per unique query, source types, and chunk fingerprint, and
+    reused when those inputs are unchanged, avoiding redundant reranking.
     """
 
     query: str
-    source_types: list[str] = Field(default_factory=list)
+    source_types: tuple[str, ...] = ()
+    chunks: tuple[ContextChunk, ...] = ()
+    tokens: tuple[str, ...] = ()
     chunk_count: int = 0
     fingerprint: str = ""  # SHA-256 prefix of chunk keys for change detection
     token_count: int = 0
