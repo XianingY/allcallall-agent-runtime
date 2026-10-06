@@ -476,6 +476,26 @@
         },
         "title": "Long Term Memory",
         "type": "array"
+      },
+      "retrieval_mode": {
+        "default": "hybrid",
+        "enum": [
+          "go_context",
+          "rag_runtime",
+          "hybrid"
+        ],
+        "title": "Retrieval Mode",
+        "type": "string"
+      },
+      "context_fingerprint": {
+        "default": "",
+        "title": "Context Fingerprint",
+        "type": "string"
+      },
+      "corpus_version": {
+        "default": "",
+        "title": "Corpus Version",
+        "type": "string"
       }
     },
     "required": [
@@ -4168,6 +4188,26 @@
             },
             "title": "Long Term Memory",
             "type": "array"
+          },
+          "retrieval_mode": {
+            "default": "hybrid",
+            "enum": [
+              "go_context",
+              "rag_runtime",
+              "hybrid"
+            ],
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "context_fingerprint": {
+            "default": "",
+            "title": "Context Fingerprint",
+            "type": "string"
+          },
+          "corpus_version": {
+            "default": "",
+            "title": "Corpus Version",
+            "type": "string"
           }
         },
         "required": [
@@ -5353,6 +5393,11 @@
           "route_accuracy": {
             "default": 0,
             "title": "Route Accuracy",
+            "type": "number"
+          },
+          "role_routing_match_rate": {
+            "default": 0,
+            "title": "Role Routing Match Rate",
             "type": "number"
           },
           "loop_completion_rate": {

@@ -10,6 +10,7 @@ from typing import Any, cast
 import pytest
 from langgraph.graph import END, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.runnables import RunnableConfig
 
 import allcallall_agent_runtime.nodes.parallel_roles as parallel_roles
 from allcallall_agent_runtime.config import AgentRuntimeConfig
@@ -269,7 +270,7 @@ def test_parallel_roles_use_branch_snapshots_and_merge_canonically(
     def memory_agent(branch: GraphState) -> dict[str, Any]:
         seen.append(branch)
         branch["request"].context_chunks.append(_chunk("memory", "mutated"))
-        branch["role_results"].append("must not leak")
+        branch["role_results"].append(cast(RoleResult, "must not leak"))
         return {"role_results": [_role_result("memory_agent")]}
 
     _install_executors(monkeypatch, searcher, memory_agent)
@@ -483,7 +484,7 @@ def test_parallel_failure_real_checkpoint_saver_has_no_partial_branch_results(
             ),
         },
     )
-    config = {"configurable": {"thread_id": "parallel-failure"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "parallel-failure"}}
 
     with pytest.raises(ValueError, match="memory branch failed"):
         compiled.invoke(state, config)
