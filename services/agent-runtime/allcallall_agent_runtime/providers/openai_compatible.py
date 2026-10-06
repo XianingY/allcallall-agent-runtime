@@ -7,7 +7,11 @@ import httpx
 
 import allcallall_agent_runtime.config as _cfg
 from allcallall_agent_runtime.config import AgentRuntimeConfig
-from allcallall_agent_runtime.http_requests import build_http_client, post_json_without_cookies
+from allcallall_agent_runtime.http_requests import (
+    build_http_client,
+    post_json_without_cookies,
+    service_request_timeout,
+)
 from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import WorkflowRequest
 from allcallall_agent_runtime.prompts import structured_prompt_for
@@ -70,7 +74,7 @@ class OpenAICompatibleProvider:
                     f"{self.base_url}/chat/completions",
                     payload=payload,
                     headers=headers,
-                    timeout_sec=self.timeout_sec,
+                    timeout=service_request_timeout(self._settings, self.timeout_sec),
                 )
             except httpx.TimeoutException as exc:
                 raise ProviderError(

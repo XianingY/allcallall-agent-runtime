@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from .config import RAGRuntimeConfig, config as default_config
-from .http_requests import build_http_client, post_json_without_cookies
+from .http_requests import build_http_client, post_json_without_cookies, service_request_timeout
 from .metrics import metrics
 from .models import ContextChunk, RetrievalQueryRequest
 
@@ -56,7 +56,7 @@ class QdrantAdapter:
                         f"{self.url}/collections/{self.collection}/points/{endpoint}",
                         payload=payload,
                         headers=self._headers(),
-                        timeout_sec=self.timeout,
+                        timeout=service_request_timeout(self._settings, self.timeout),
                     )
             else:
                 response = post_json_without_cookies(
@@ -64,7 +64,7 @@ class QdrantAdapter:
                     f"{self.url}/collections/{self.collection}/points/{endpoint}",
                     payload=payload,
                     headers=self._headers(),
-                    timeout_sec=self.timeout,
+                    timeout=service_request_timeout(self._settings, self.timeout),
                 )
         except httpx.PoolTimeout as exc:
             metrics.inc("rag_runtime_qdrant_pool_timeouts_total")

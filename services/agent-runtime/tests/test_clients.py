@@ -22,6 +22,7 @@ from allcallall_agent_runtime.models import (
     WorkflowRequest,
 )
 from allcallall_agent_runtime.providers.base import create_provider
+from allcallall_agent_runtime.providers.openai_compatible import OpenAICompatibleProvider
 
 
 # --------------------------------------------------------------------------- #
@@ -215,6 +216,9 @@ def test_runtime_clients_preserve_service_timeouts_on_shared_client() -> None:
         openai_timeout_sec=1,
         tool_bridge_timeout_sec=2,
         rag_runtime_timeout_sec=3,
+        http_connect_timeout_sec=0.11,
+        http_write_timeout_sec=0.22,
+        http_pool_timeout_sec=0.33,
     )
     clients = build_runtime_clients(config, http_client=http)
 
@@ -222,9 +226,11 @@ def test_runtime_clients_preserve_service_timeouts_on_shared_client() -> None:
     clients.tool_bridge.build().execute_read_tool(_request(), "lookup", {})
     clients.rag_runtime.agentic_retrieve(_request(), _dummy_step(), _dummy_plan())
 
-    expected_timeouts = [1, 2, 3]
-    actual_timeouts = [request.extensions["timeout"]["read"] for request in transport.seen_requests]
-    assert actual_timeouts == expected_timeouts
+    actual_timeouts = [request.extensions["timeout"] for request in transport.seen_requests]
+    assert [timeout["read"] for timeout in actual_timeouts] == [1, 2, 3]
+    assert all(timeout["connect"] == 0.11 for timeout in actual_timeouts)
+    assert all(timeout["write"] == 0.22 for timeout in actual_timeouts)
+    assert all(timeout["pool"] == 0.33 for timeout in actual_timeouts)
 
 
 def test_close_is_idempotent() -> None:
@@ -250,6 +256,7 @@ def test_create_provider_default_client_is_bounded_and_cookieless() -> None:
     config = _test_config()
     with patch("httpx.Client", wraps=httpx.Client) as client_factory:
         provider = create_provider(config=config)
+        assert isinstance(provider, OpenAICompatibleProvider)
         client = provider._client
 
     assert client is not None

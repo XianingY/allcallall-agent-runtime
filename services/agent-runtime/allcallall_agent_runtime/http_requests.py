@@ -39,13 +39,28 @@ def build_http_client(config: AgentRuntimeConfig) -> httpx.Client:
     )
 
 
+def service_request_timeout(config: AgentRuntimeConfig, read_sec: float) -> httpx.Timeout:
+    """Build a per-request timeout with a service-specific read limit.
+
+    A scalar per-request timeout would replace the client's staged timeout and
+    silently lose the configured connect/write/pool limits, so compose them
+    with the service's read timeout instead.
+    """
+    return httpx.Timeout(
+        connect=config.http_connect_timeout_sec,
+        read=read_sec,
+        write=config.http_write_timeout_sec,
+        pool=config.http_pool_timeout_sec,
+    )
+
+
 def post_json_without_cookies(
     client: httpx.Client,
     url: str,
     *,
     payload: dict[str, Any],
     headers: dict[str, str],
-    timeout_sec: float,
+    timeout: httpx.Timeout,
 ) -> httpx.Response:
     """POST JSON without replaying cookies from the client's shared cookie jar."""
     client.cookies.clear()
@@ -54,7 +69,7 @@ def post_json_without_cookies(
         url,
         json=payload,
         headers=headers,
-        timeout=timeout_sec,
+        timeout=timeout,
     )
     request.headers.pop("Cookie", None)
     try:

@@ -8,7 +8,11 @@ import httpx
 
 import allcallall_agent_runtime.config as _cfg
 from allcallall_agent_runtime.config import AgentRuntimeConfig
-from allcallall_agent_runtime.http_requests import build_http_client, post_json_without_cookies
+from allcallall_agent_runtime.http_requests import (
+    build_http_client,
+    post_json_without_cookies,
+    service_request_timeout,
+)
 from .metrics import registry
 from .models import ContextChunk, WorkflowRequest
 from .deadline import current_retry_budget
@@ -79,7 +83,7 @@ class GoToolBridge:
                     f"{self.base_url}/api/v1/internal/agent/tools/read",
                     payload=payload,
                     headers=headers,
-                    timeout_sec=self.timeout_sec,
+                    timeout=service_request_timeout(self._settings, self.timeout_sec),
                 )
             except httpx.HTTPError as exc:
                 raise ToolBridgeError(f"go tool bridge unavailable: {exc}", retryable=True) from exc
@@ -156,7 +160,7 @@ class GoToolBridge:
                     f"{self.base_url}/api/v1/internal/agent/tools/write",
                     payload=payload,
                     headers=headers,
-                    timeout_sec=self.timeout_sec,
+                    timeout=service_request_timeout(self._settings, self.timeout_sec),
                 )
             except httpx.HTTPError as exc:
                 raise ToolBridgeError(f"go tool bridge unavailable: {exc}", retryable=True) from exc

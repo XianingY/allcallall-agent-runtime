@@ -7,7 +7,11 @@ import httpx
 
 import allcallall_agent_runtime.config as _cfg
 from allcallall_agent_runtime.config import AgentRuntimeConfig
-from allcallall_agent_runtime.http_requests import build_http_client, post_json_without_cookies
+from allcallall_agent_runtime.http_requests import (
+    build_http_client,
+    post_json_without_cookies,
+    service_request_timeout,
+)
 from allcallall_agent_runtime.metrics import registry
 from allcallall_agent_runtime.models import ContextChunk, RetrievalPlan, RetrievalPlanStep, WorkflowRequest
 from allcallall_agent_runtime.deadline import current_retry_budget
@@ -79,7 +83,7 @@ class RAGRuntimeClient:
                     f"{self.base_url}/v1/retrieval/agentic",
                     payload=payload,
                     headers={},
-                    timeout_sec=self.timeout_sec,
+                    timeout=service_request_timeout(self._settings, self.timeout_sec),
                 )
             except httpx.HTTPError as exc:
                 raise RAGRuntimeError(f"rag runtime unavailable: {exc}", retryable=True) from exc

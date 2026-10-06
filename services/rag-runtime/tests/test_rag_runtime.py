@@ -347,14 +347,22 @@ def test_qdrant_adapter_parses_vector_search(monkeypatch: pytest.MonkeyPatch) ->
 def test_rag_clients_share_one_transport_and_preserve_service_timeouts() -> None:
     transport = RAGRoutingTransport()
     http = httpx.Client(transport=transport, timeout=99)
-    clients = build_rag_clients(_rag_config(), http_client=http)
+    config = _rag_config(
+        http_connect_timeout_sec=0.11,
+        http_write_timeout_sec=0.22,
+        http_pool_timeout_sec=0.33,
+    )
+    clients = build_rag_clients(config, http_client=http)
 
     clients.go_bridge.query(_retrieval_request())
     clients.qdrant.query(_retrieval_request())
 
     assert transport.requests == 2
-    actual_timeouts = [request.extensions["timeout"]["read"] for request in transport.seen_requests]
-    assert actual_timeouts == [2, 3.5]
+    actual_timeouts = [request.extensions["timeout"] for request in transport.seen_requests]
+    assert [timeout["read"] for timeout in actual_timeouts] == [2, 3.5]
+    assert all(timeout["connect"] == 0.11 for timeout in actual_timeouts)
+    assert all(timeout["write"] == 0.22 for timeout in actual_timeouts)
+    assert all(timeout["pool"] == 0.33 for timeout in actual_timeouts)
 
 
 def test_rag_clients_do_not_replay_cookies_across_requests() -> None:
@@ -410,7 +418,7 @@ def test_go_bridge_pool_timeout_is_observable(
     assert _metric_value("rag_runtime_go_bridge_pool_timeouts_total") == before + 1
     assert any(
         record.message == "rag_runtime_go_bridge_pool_timeout"
-        and record.error_type == "pool_timeout"
+        and getattr(record, "error_type", None) == "pool_timeout"
         for record in caplog.records
     )
 
@@ -435,7 +443,7 @@ def test_qdrant_fallback_is_observable(caplog: pytest.LogCaptureFixture) -> None
     assert _metric_value("rag_runtime_qdrant_fallback_total") == before + 1
     assert any(
         record.message == "rag_runtime_qdrant_fallback"
-        and record.error_type == "network"
+        and getattr(record, "error_type", None) == "network"
         for record in caplog.records
     )
 

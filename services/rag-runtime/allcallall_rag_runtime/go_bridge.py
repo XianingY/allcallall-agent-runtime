@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 
 from .config import RAGRuntimeConfig, config as default_config
-from .http_requests import build_http_client, post_json_without_cookies
+from .http_requests import build_http_client, post_json_without_cookies, service_request_timeout
 from .metrics import metrics
 from .models import ContextChunk, RetrievalQueryRequest
 
@@ -50,7 +50,7 @@ class GoRetrievalBridge:
                         f"{self.base_url}/api/v1/internal/agent/retrieval/query",
                         payload=payload,
                         headers=headers,
-                        timeout_sec=self.timeout_sec,
+                        timeout=service_request_timeout(self._settings, self.timeout_sec),
                     )
             else:
                 response = post_json_without_cookies(
@@ -58,7 +58,7 @@ class GoRetrievalBridge:
                     f"{self.base_url}/api/v1/internal/agent/retrieval/query",
                     payload=payload,
                     headers=headers,
-                    timeout_sec=self.timeout_sec,
+                    timeout=service_request_timeout(self._settings, self.timeout_sec),
                 )
             response.raise_for_status()
         except httpx.PoolTimeout:
