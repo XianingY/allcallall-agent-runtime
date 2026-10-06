@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Deterministic HTTPS MCP reference service for AllCallAll integrations"
 requires-python = ">=3.11"
 dependencies = [
-  "mcp>=1.0.0,<2",
+  "mcp>=2.3.0,<3",
   "uvicorn[standard]>=0.30,<1",
 ]
 
