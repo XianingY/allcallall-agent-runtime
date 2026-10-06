@@ -57,7 +57,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.runtime }}
           cache-to: type=gha,mode=max,scope=${{ matrix.runtime }}
       - name: Scan ${{ matrix.runtime }} with Trivy
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/xianingy/allcallall-agent-runtime/${{ matrix.runtime }}:${{ github.sha }}
           format: table
