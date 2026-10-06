@@ -217,7 +217,10 @@ def test_with_retry_budget_limits_provider_retries(monkeypatch: pytest.MonkeyPat
         calls["n"] += 1
         raise ProviderError("transient", retryable=True)
 
-    deadline = ExecutionDeadline(monotonic_deadline=100.0)  # already expired
+    deadline = ExecutionDeadline(
+        monotonic_deadline=100.0,
+        clock=lambda: 101.0,  # deterministic: the deadline is already expired
+    )
     budget = RetryBudget(max_attempts=2, deadline=deadline, jitter=lambda _: 0.0)
 
     with pytest.raises(ProviderError):
