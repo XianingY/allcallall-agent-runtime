@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from langgraph.graph import END, StateGraph
+from langgraph.checkpoint.memory import MemorySaver
 
 import allcallall_agent_runtime.nodes.parallel_roles as parallel_roles
 from allcallall_agent_runtime.config import AgentRuntimeConfig
@@ -368,6 +370,46 @@ def test_parallel_failure_cancels_sibling_and_discards_deltas(
     assert sibling_cancelled.is_set()
 
 
+def test_parallel_failure_cleanup_is_bounded_when_sibling_ignores_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sibling_started = threading.Event()
+    sibling_finished = threading.Event()
+    unblock_sibling = threading.Event()
+
+    def searcher(branch: GraphState) -> dict[str, Any]:
+        del branch
+        sibling_started.set()
+        # Deliberately ignore branch_cancel_event and block longer than the test bound.
+        unblock_sibling.wait(timeout=2.0)
+        sibling_finished.set()
+        return {"role_results": [_role_result("searcher")]}
+
+    def memory_agent(branch: GraphState) -> dict[str, Any]:
+        del branch
+        assert sibling_started.wait(timeout=1.0)
+        raise ValueError("memory branch failed")
+
+    _install_executors(monkeypatch, searcher, memory_agent)
+    monkeypatch.setattr(app_config, "cancellation_grace_seconds", 0.05)
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(ValueError, match="memory branch failed"):
+            execute_parallel_roles(
+                _state(),
+                ["searcher", "memory_agent"],
+                max_parallel=2,
+                token_budget=10_000,
+            )
+        elapsed = time.monotonic() - started
+        assert elapsed < 0.5
+        assert not sibling_finished.is_set()
+    finally:
+        unblock_sibling.set()
+        assert sibling_finished.wait(timeout=1.0)
+
+
 def test_parallel_failure_preserves_parent_state_and_releases_reservation_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -412,6 +454,48 @@ def test_parallel_failure_preserves_parent_state_and_releases_reservation_once(
     assert state["trace_events"] == parent_trace
     assert state["role_results"] == parent_results
     assert reservation.release_count == 1
+
+
+def test_parallel_failure_real_checkpoint_saver_has_no_partial_branch_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = StateGraph(GraphState)
+    graph.add_node("parallel_roles", parallel_roles_node)
+    graph.set_entry_point("parallel_roles")
+    graph.add_edge("parallel_roles", END)
+    compiled = graph.compile(checkpointer=MemorySaver())
+
+    def searcher(branch: GraphState) -> dict[str, Any]:
+        return {"role_results": [_role_result("searcher")]}
+
+    def memory_agent(branch: GraphState) -> dict[str, Any]:
+        raise ValueError("memory branch failed")
+
+    _install_executors(monkeypatch, searcher, memory_agent)
+    state = cast(
+        GraphState,
+        {
+            "request": _request(),
+            "trace_events": [TraceEvent(event="parent.trace", node="parent")],
+            "role_results": [_role_result("old")],
+            "role_allocation": RoleAllocation(
+                roles=["searcher", "memory_agent", "synthesize", "risk_analyst"]
+            ),
+        },
+    )
+    config = {"configurable": {"thread_id": "parallel-failure"}}
+
+    with pytest.raises(ValueError, match="memory branch failed"):
+        compiled.invoke(state, config)
+
+    snapshots = list(compiled.get_state_history(config))
+    assert snapshots
+    committed_roles = {
+        result.role
+        for snapshot in snapshots
+        for result in snapshot.values.get("role_results", [])
+    }
+    assert committed_roles == {"old"}
 
 
 def test_parallel_cancellation_propagates_existing_deadline_classification(

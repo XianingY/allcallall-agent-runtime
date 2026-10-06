@@ -313,7 +313,11 @@ def execute_parallel_roles(
             worker_count = min(max_parallel, PARALLEL_MAX_ROLES, len(ordered_roles))
             for role in ordered_roles:
                 reservation.acquire(role, estimate_role_tokens(state, role))
-            with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="role-branch") as executor:
+            executor = ThreadPoolExecutor(
+                max_workers=worker_count,
+                thread_name_prefix="role-branch",
+            )
+            try:
                 futures = {
                     role: executor.submit(_run_role, role, state, cancel_event)
                     for role in ordered_roles
@@ -342,6 +346,11 @@ def execute_parallel_roles(
                         parallel_role_partial_failures_total.labels(role=failed_role).inc()
                         parallel_role_groups_total.labels(mode="parallel", outcome="partial_failure").inc()
                     raise
+            finally:
+                # The context manager would call shutdown(wait=True) after the
+                # bounded cancellation wait and block again on an uncooperative
+                # branch. Bounded shutdown leaves only that still-running worker.
+                executor.shutdown(wait=False, cancel_futures=True)
             deltas.sort(key=lambda delta: CANONICAL_ROLE_ORDER.index(delta["role"]))
             parallel_role_groups_total.labels(mode="parallel", outcome="completed").inc()
         else:

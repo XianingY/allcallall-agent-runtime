@@ -35,7 +35,7 @@ from .nodes.role_router import next_role_after, route_roles
 
 # Possible targets of the dynamic role-router conditional edges. Every router
 # edge may resolve to any role node or straight to ``merge`` (when no further
-# role is scheduled), so all five must appear in each edge's path map.
+# role is scheduled), so every target below must appear in each edge's path map.
 _ROLE_TARGETS: list[str] = [
     "searcher",
     "memory_agent",
