@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Literal
 
 
@@ -40,8 +41,21 @@ from ..synthesis import (
     synthesize_next_step,
     synthesize_summary,
 )
-from ..deadline import get_current_deadline
+from ..deadline import ExecutionCancelled, get_current_deadline
 from ..state import GraphState
+from .role_router import EarlyTerminationThresholds, should_terminate_early
+
+__all__ = [
+    "EarlyTerminationThresholds",
+    "should_terminate_early",
+    "decompose",
+    "searcher",
+    "memory_agent",
+    "synthesize",
+    "bounded_react_search",
+    "risk_analyst",
+    "reflect_and_plan_memory",
+]
 
 
 def decompose(state: GraphState) -> GraphState:
@@ -66,7 +80,7 @@ def decompose(state: GraphState) -> GraphState:
 
 def searcher(state: GraphState) -> GraphState:
     """Execute bounded ReAct search for the searcher role."""
-    _check_cancelled()
+    _check_cancelled(state.get("branch_cancel_event"))
     request = request_with_runtime_context(state)
     trace = state.get("trace_events", [])
     trace.append(TraceEvent(event="graph.node.started", node="searcher", role="searcher", status="running"))
@@ -79,6 +93,8 @@ def searcher(state: GraphState) -> GraphState:
         enable_early_termination=app_config.enable_early_termination,
         goal_threshold=app_config.early_termination_goal_threshold,
         plateau_window=app_config.early_termination_plateau_window,
+        evidence_threshold=app_config.early_termination_evidence_threshold,
+        citation_threshold=app_config.early_termination_citation_threshold,
     )
     trace.extend(result.react_trace)
     trace.append(TraceEvent(event="graph.node.completed", node="searcher", role="searcher"))
@@ -89,6 +105,7 @@ def searcher(state: GraphState) -> GraphState:
 
 def memory_agent(state: GraphState) -> GraphState:
     """Summarize durable memory and prior context for downstream roles."""
+    _check_cancelled(state.get("branch_cancel_event"))
     request = request_with_runtime_context(state)
     memory_chunks = [
         chunk
@@ -206,6 +223,8 @@ def bounded_react_search(
     enable_early_termination: bool = False,
     goal_threshold: float = 0.7,
     plateau_window: int = 2,
+    evidence_threshold: float = 0.8,
+    citation_threshold: float = 0.8,
 ) -> RoleResult:
     """Execute bounded ReAct search loop with determinable termination (Module 1).
 
@@ -227,6 +246,11 @@ def bounded_react_search(
     trace: list[TraceEvent] = []
     confidence_history: list[float] = []
     signal = TerminationSignal()
+    thresholds = EarlyTerminationThresholds(
+        evidence_sufficiency=evidence_threshold,
+        citation_coverage=citation_threshold,
+        goal_coverage=goal_threshold,
+    )
 
     def _make_signal(
         trigger: TerminationTrigger,
@@ -248,6 +272,7 @@ def bounded_react_search(
         )
 
     for iteration in range(1, max_iterations + 1):
+        _check_cancelled()
         tool_name = tools[0]
         if role == "risk_analyst" and iteration == max_iterations and READ_TOOL_RECENT_MEETINGS in tools:
             tool_name = READ_TOOL_RECENT_MEETINGS
@@ -347,16 +372,31 @@ def bounded_react_search(
             round_confidence = _compute_round_confidence(role, iteration, citations, selected, request)
             confidence_history.append(round_confidence)
             goal_score = _compute_goal_achievement(role, request, citations, snippets, iteration)
-            if goal_score >= goal_threshold:
+            evidence_sufficiency = _compute_evidence_sufficiency(citations, snippets)
+            citation_coverage = _compute_citation_coverage(citations)
+            quality_gate_passed = should_terminate_early(
+                evidence_sufficiency=evidence_sufficiency,
+                citation_coverage=citation_coverage,
+                goal_coverage=goal_score,
+                required_roles_complete=True,
+                unresolved_approval=False,
+                safety_blocked=False,
+                thresholds=thresholds,
+            )
+            if quality_gate_passed and goal_score >= goal_threshold:
                 signal = _make_signal(
                     TerminationTrigger.GOAL_ACHIEVED,
-                    f"goal_score={goal_score:.2f} >= {goal_threshold}",
+                    (
+                        f"evidence={evidence_sufficiency:.2f}, "
+                        f"citation_coverage={citation_coverage:.2f}, "
+                        f"goal_score={goal_score:.2f} all met thresholds"
+                    ),
                     goal_score,
                     round_confidence,
                     iteration,
                 )
                 break
-            if len(confidence_history) >= max(1, plateau_window):
+            if quality_gate_passed and len(confidence_history) >= max(1, plateau_window):
                 recent = confidence_history[-plateau_window:]
                 if (max(recent) - min(recent)) < 0.05:
                     signal = _make_signal(
@@ -367,7 +407,7 @@ def bounded_react_search(
                         iteration,
                     )
                     break
-            if iteration >= 2 and _inline_checkagent_should_stop(role, citations, request):
+            if quality_gate_passed and iteration >= 2 and _inline_checkagent_should_stop(role, citations, request):
                 signal = _make_signal(
                     TerminationTrigger.CHECKAGENT_EARLY_STOP,
                     "inline CheckAgent signaled sufficient evidence",
@@ -454,6 +494,28 @@ def _compute_goal_achievement(
     efficiency_factor = max(0.5, 1.0 - (iteration - 1) * 0.15)
     score *= efficiency_factor
     return min(max(score, 0.0), 1.0)
+
+
+def _compute_evidence_sufficiency(
+    citations: list[Citation],
+    snippets: list[str],
+) -> float:
+    """Estimate whether retrieved evidence is sufficient without an LLM call."""
+    if not citations and not snippets:
+        return 0.0
+    citation_score = min(len(citations) / 3.0, 1.0) * 0.6
+    snippet_score = min(len(snippets) / 3.0, 1.0) * 0.4
+    return min(citation_score + snippet_score, 1.0)
+
+
+def _compute_citation_coverage(citations: list[Citation]) -> float:
+    """Estimate source coverage from distinct, cited evidence."""
+    if not citations:
+        return 0.0
+    source_types = {citation.source_type for citation in citations}
+    count_score = min(len(citations) / 3.0, 1.0) * 0.5
+    diversity_score = min(len(source_types) / 3.0, 1.0) * 0.5
+    return min(count_score + diversity_score, 1.0)
 
 
 def _compute_round_confidence(
@@ -656,8 +718,10 @@ def reflect_and_plan_memory(state: GraphState) -> GraphState:
 
 
 
-def _check_cancelled() -> None:
-    """Raise ExecutionCancelled if the current execution deadline has been cancelled or expired."""
+def _check_cancelled(branch_cancel_event: threading.Event | None = None) -> None:
+    """Raise for a cancelled deadline or a cancelled sibling branch."""
+    if branch_cancel_event is not None and branch_cancel_event.is_set():
+        raise ExecutionCancelled("shutdown")
     deadline = get_current_deadline()
     if deadline is not None:
         deadline.raise_if_cancelled()

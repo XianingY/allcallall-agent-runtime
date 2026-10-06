@@ -129,6 +129,8 @@ class AgentRuntimeConfig(BaseSettings):
     # of always running max_iterations. Off by default — when disabled the loop
     # behaves exactly as before (only the searcher citation early-exit remains).
     enable_early_termination: bool = False
+    early_termination_evidence_threshold: float = 0.8
+    early_termination_citation_threshold: float = 0.8
     early_termination_goal_threshold: float = 0.7
     early_termination_plateau_window: int = 2
 
@@ -137,6 +139,13 @@ class AgentRuntimeConfig(BaseSettings):
     # (e.g. risk_analyst for context_qa). Off by default — when disabled the DAG
     # is the original static chain, so behavior is unchanged.
     enable_role_router: bool = False
+
+    # Bounded independent-role execution. Only the read-only searcher and
+    # memory_agent pair is eligible. The flag is intentionally independent of
+    # role routing: an allocation that lists a parallel group is not sufficient
+    # to enable concurrent execution.
+    enable_parallel_roles: bool = False
+    parallel_role_token_budget: int = 8_000
 
 
     # Bounded admission control: limits on concurrent and queued workflow runs

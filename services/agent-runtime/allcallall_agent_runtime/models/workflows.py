@@ -110,6 +110,8 @@ class WorkflowEvalCase(BaseModel):
     required_citation_source_types: list[str] = Field(default_factory=list)
     required_tool_proposals: list[str] = Field(default_factory=list)
     forbidden_tool_proposals: list[str] = Field(default_factory=list)
+    expected_selected_roles: list[str] = Field(default_factory=list)
+    forbidden_selected_roles: list[str] = Field(default_factory=list)
     expected_route: str = ""
     requires_unsupported_claim_guard: bool = False
 
@@ -128,6 +130,7 @@ class WorkflowEvalCaseResult(BaseModel):
     unsupported_claim_guarded: bool
     prompt_schema_valid: bool = True
     route_matched: bool = True
+    role_routing_matched: bool = True
     loop_completed: bool = True
     stop_reason_valid: bool = True
     memory_reflection_precise: bool = True
@@ -151,6 +154,7 @@ class WorkflowEvalSummary(BaseModel):
     unsupported_claim_guard_rate: float = 0
     prompt_schema_valid_rate: float = 0
     route_accuracy: float = 0
+    role_routing_match_rate: float = 0
     loop_completion_rate: float = 0
     stop_reason_valid_rate: float = 0
     memory_reflection_precision: float = 0
@@ -282,4 +286,3 @@ class EvalRun(BaseModel):
     target_badcase_categories: list[BadcaseCategory] = Field(default_factory=list)
     improved: bool = False
     created_at: str
-

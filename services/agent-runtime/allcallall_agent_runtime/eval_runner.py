@@ -3,19 +3,25 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Callable
 
 from .main import run_workflow
+from .config import config as app_config
+from .harness import reset_harness
 from .models import (
     WorkflowEvalCase,
     WorkflowEvalCaseResult,
     WorkflowEvalReport,
     WorkflowEvalSummary,
+    WorkflowRequest,
+    WorkflowResponse,
 )
 from .providers import create_provider
 
 
 DEFAULT_FIXTURE = Path(__file__).resolve().parents[1] / "evals" / "cases.json"
 DEFAULT_OUT = Path(__file__).resolve().parents[1] / "evals" / "reports"
+_DEFAULT_RUN_WORKFLOW = run_workflow
 
 
 def run_eval(fixture: Path = DEFAULT_FIXTURE) -> WorkflowEvalReport:
@@ -29,16 +35,30 @@ def run_eval(fixture: Path = DEFAULT_FIXTURE) -> WorkflowEvalReport:
     )
 
 
-def load_cases(path: Path) -> list[WorkflowEvalCase]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+def load_cases(path: Path | None = None) -> list[WorkflowEvalCase]:
+    raw = json.loads((path or DEFAULT_FIXTURE).read_text(encoding="utf-8"))
     if not isinstance(raw, list):
         raise ValueError("workflow eval fixture must be a list")
     return [WorkflowEvalCase.model_validate(item) for item in raw]
 
 
-def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
+def evaluate_case(
+    case: WorkflowEvalCase,
+    *,
+    run_workflow: Callable[[WorkflowRequest], WorkflowResponse] = run_workflow,
+) -> WorkflowEvalCaseResult:
     request = case.request.model_copy(update={"preset": case.preset, "goal": case.goal})
-    response = run_workflow(request)
+    previous_role_router = app_config.enable_role_router
+    uses_default_workflow = run_workflow is _DEFAULT_RUN_WORKFLOW
+    app_config.enable_role_router = True
+    if uses_default_workflow:
+        reset_harness()
+    try:
+        response = run_workflow(request)
+    finally:
+        app_config.enable_role_router = previous_role_router
+        if uses_default_workflow:
+            reset_harness()
     text = " ".join(
         [
             response.summary,
@@ -95,6 +115,19 @@ def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
         route_matched = response.route_decision.route == case.expected_route
         if not route_matched:
             errors.append(f"expected route {case.expected_route}, got {response.route_decision.route}")
+
+    selected_roles = [
+        "synthesize" if result.role == "summarizer" else result.role
+        for result in response.role_results
+    ]
+    role_routing_matched = True
+    if case.expected_selected_roles or case.forbidden_selected_roles:
+        role_routing_matched = contains_all(
+            selected_roles,
+            case.expected_selected_roles,
+        ) and not intersects(selected_roles, case.forbidden_selected_roles)
+        if not role_routing_matched:
+            errors.append("role routing did not match selected-role contract")
 
     loop_completed = all(item.completed for item in response.loop_traces)
     if not loop_completed:
@@ -159,6 +192,7 @@ def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
         and unsupported_guard
         and prompt_schema_valid
         and route_matched
+        and role_routing_matched
         and loop_completed
         and stop_reason_valid
         and memory_reflection_precise
@@ -180,6 +214,7 @@ def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
         unsupported_claim_guarded=unsupported_guard,
         prompt_schema_valid=prompt_schema_valid,
         route_matched=route_matched,
+        role_routing_matched=role_routing_matched,
         loop_completed=loop_completed,
         stop_reason_valid=stop_reason_valid,
         memory_reflection_precise=memory_reflection_precise,
@@ -206,6 +241,7 @@ def summarize_results(results: list[WorkflowEvalCaseResult]) -> WorkflowEvalSumm
         unsupported_claim_guard_rate=rate(results, "unsupported_claim_guarded"),
         prompt_schema_valid_rate=rate(results, "prompt_schema_valid"),
         route_accuracy=rate(results, "route_matched"),
+        role_routing_match_rate=rate(results, "role_routing_matched"),
         loop_completion_rate=rate(results, "loop_completed"),
         stop_reason_valid_rate=rate(results, "stop_reason_valid"),
         memory_reflection_precision=rate(results, "memory_reflection_precise"),
@@ -242,6 +278,7 @@ def format_markdown(report: WorkflowEvalReport) -> str:
         f"- Approval safety: `{summary.approval_safety_rate * 100:.1f}%`",
         f"- Prompt schema valid: `{summary.prompt_schema_valid_rate * 100:.1f}%`",
         f"- Route accuracy: `{summary.route_accuracy * 100:.1f}%`",
+        f"- Role routing: `{summary.role_routing_match_rate * 100:.1f}%`",
         f"- Loop completion: `{summary.loop_completion_rate * 100:.1f}%`",
         f"- Stop reason valid: `{summary.stop_reason_valid_rate * 100:.1f}%`",
         f"- Memory reflection precision: `{summary.memory_reflection_precision * 100:.1f}%`",

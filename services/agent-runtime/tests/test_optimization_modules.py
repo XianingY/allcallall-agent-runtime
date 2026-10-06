@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from allcallall_agent_runtime.config import config as app_config
 from allcallall_agent_runtime.context_compression import SQLiteLongTermMemory
 from allcallall_agent_runtime.dag import build_workflow_graph
+from allcallall_agent_runtime.dag import _route_first
 from allcallall_agent_runtime.main import app
 from allcallall_agent_runtime.mcp_tools import (
     EXEC_ASYNC,
@@ -237,6 +238,20 @@ def test_dynamic_graph_compiles_when_role_router_enabled(monkeypatch: pytest.Mon
         assert "role_router" in node_names
     finally:
         monkeypatch.setattr(app_config, "enable_role_router", False)
+
+
+def test_parallel_group_metadata_alone_does_not_enable_parallelism(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state: GraphState = {
+        "role_allocation": RoleAllocation(
+            roles=["searcher", "memory_agent", "synthesize", "risk_analyst"],
+            parallel_groups=[["searcher", "memory_agent"], ["synthesize"], ["risk_analyst"]],
+        )
+    }
+    monkeypatch.setattr(app_config, "enable_role_router", True)
+    monkeypatch.setattr(app_config, "enable_parallel_roles", False)
+    assert _route_first(state) == "searcher"
 
 
 # --------------------------------------------------------------------------- #

@@ -12,6 +12,10 @@ from typing import cast
 
 from allcallall_agent_runtime.dag import build_workflow_graph
 from allcallall_agent_runtime.models import CriticResult, ToolProposal
+from allcallall_agent_runtime.nodes.role_router import (
+    EarlyTerminationThresholds,
+    should_terminate_early,
+)
 from allcallall_agent_runtime.state import GraphState
 from allcallall_agent_runtime.nodes.check import (
     CheckDecision,
@@ -103,6 +107,35 @@ def test_route_quality_revise_loops_to_synthesize() -> None:
 
 def test_route_safety_always_advances_to_approval() -> None:
     assert route_safety({}) == "approve"
+
+
+def test_early_termination_cannot_bypass_checkagent_safety() -> None:
+    """Quality alone cannot terminate while review or required roles remain."""
+    thresholds = EarlyTerminationThresholds(0.8, 0.8, 0.8)
+    assert (
+        should_terminate_early(
+            evidence_sufficiency=1.0,
+            citation_coverage=1.0,
+            goal_coverage=1.0,
+            required_roles_complete=True,
+            unresolved_approval=False,
+            safety_blocked=False,
+            thresholds=thresholds,
+        )
+        is True
+    )
+    assert (
+        should_terminate_early(
+            evidence_sufficiency=1.0,
+            citation_coverage=1.0,
+            goal_coverage=1.0,
+            required_roles_complete=False,
+            unresolved_approval=True,
+            safety_blocked=True,
+            thresholds=thresholds,
+        )
+        is False
+    )
 
 
 def test_graph_wires_check_agents_and_loop_edge() -> None:

@@ -173,6 +173,44 @@ cancel_grace_exceeded_total = Counter(
     registry=_default_registry,
 )
 
+# --- Evaluation-gated routing and bounded parallel roles ---
+role_router_selected_roles_total = Counter(
+    "agent_runtime_role_router_selected_roles_total",
+    "Total role selections made by the dynamic role router",
+    ["role"],  # bounded: the four canonical role names
+    registry=_default_registry,
+)
+early_termination_decisions_total = Counter(
+    "agent_runtime_early_termination_decisions_total",
+    "Total early-termination gate decisions",
+    ["decision"],  # bounded: accepted | rejected
+    registry=_default_registry,
+)
+parallel_role_groups_total = Counter(
+    "agent_runtime_parallel_role_groups_total",
+    "Total independent-role group executions by mode and outcome",
+    ["mode", "outcome"],  # bounded: parallel|sequential + completed|cancelled|partial_failure|budget_sequential
+    registry=_default_registry,
+)
+parallel_role_group_duration_seconds = Histogram(
+    "agent_runtime_parallel_role_group_duration_seconds",
+    "Duration of an independent searcher/memory-agent role group",
+    buckets=[0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+    registry=_default_registry,
+)
+parallel_role_cancellations_total = Counter(
+    "agent_runtime_parallel_role_cancellations_total",
+    "Total cooperative cancellations inside bounded parallel role groups",
+    ["reason"],  # bounded by ExecutionCancelled reason codes
+    registry=_default_registry,
+)
+parallel_role_partial_failures_total = Counter(
+    "agent_runtime_parallel_role_partial_failures_total",
+    "Total failed branches in bounded parallel role groups",
+    ["role"],  # bounded: searcher | memory_agent
+    registry=_default_registry,
+)
+
 # --- Retrieval reuse ---
 retrieval_reuse_total = Counter(
     "agent_runtime_retrieval_reuse_total",
