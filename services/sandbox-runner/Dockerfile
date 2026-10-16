@@ -1,7 +1,7 @@
 # Builder stage: resolves and installs the frozen dependency set with uv. The
 # build tooling (uv, uvx, the lockfile) stays in this stage and never reaches
 # the runtime image.
-FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS builder
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ RUN uv sync --frozen --no-dev --no-cache --project services/sandbox-runner \
 # Runtime stage: only the frozen venv and the application source. Ownership is
 # set inline on COPY; a chown -R pass would duplicate every file into a new
 # layer and bloat the image.
-FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS runtime
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS runtime
 
 RUN groupadd --gid 10001 runner && useradd --uid 10001 --gid runner --no-create-home runner
 WORKDIR /app
