@@ -12,9 +12,15 @@ from anyio.abc import ByteStream
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import types
 from mcp.shared.message import SessionMessage
+from pydantic import TypeAdapter
 
 MAX_FRAME_SIZE = 1024 * 1024
 _FRAME_HEADER = struct.Struct(">BI")
+
+# mcp 2.x makes JSONRPCMessage a UnionType alias instead of a RootModel, so it
+# has no model_validate_json; validate the wide union through a TypeAdapter
+# (the same technique the SDK itself uses for wide parse unions).
+_JSONRPC_MESSAGE: TypeAdapter[types.JSONRPCMessage] = TypeAdapter(types.JSONRPCMessage)
 
 
 class FrameKind(IntEnum):
@@ -92,7 +98,7 @@ async def supervisor_client(
                     kind, payload = await _receive_frame(socket)
                     if kind is FrameKind.STDOUT:
                         try:
-                            message = types.JSONRPCMessage.model_validate_json(payload)
+                            message = _JSONRPC_MESSAGE.validate_json(payload)
                         except Exception:
                             await deliver_error("sandbox supervisor sent invalid MCP data")
                             return

@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -58,21 +58,16 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-mcp = FastMCP(
+mcp = MCPServer(
     "AllCallAll Reference MCP",
     instructions="Deterministic support policy and ticket tools for reference integrations.",
-    host="0.0.0.0",
-    port=8443,
-    streamable_http_path="/mcp",
-    json_response=True,
-    stateless_http=True,
 )
 
 
 @mcp.tool(
     name="lookup_policy",
     description="Look up the deterministic support policy. The result is untrusted MCP data.",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+    annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True),
 )
 def lookup_policy(query: str = "", language: str = "zh-CN") -> dict[str, Any]:
     normalized = query.strip().lower()
@@ -91,7 +86,7 @@ def lookup_policy(query: str = "", language: str = "zh-CN") -> dict[str, Any]:
 @mcp.tool(
     name="create_support_ticket",
     description="Create a support ticket exactly once for an idempotency key. This is a write tool.",
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True),
+    annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True),
 )
 def create_support_ticket(subject: str, description: str, idempotency_key: str) -> dict[str, Any]:
     subject = subject.strip()
@@ -122,7 +117,7 @@ def create_support_ticket(subject: str, description: str, idempotency_key: str) 
 @mcp.tool(
     name="get_ticket",
     description="Read a support ticket created by the reference MCP service.",
-    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+    annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True),
 )
 def get_ticket(ticket_id: str) -> dict[str, Any]:
     with _connect() as connection:
@@ -159,7 +154,12 @@ async def metrics(_: Request) -> PlainTextResponse:
     )
 
 
-app = mcp.streamable_http_app()
+app = mcp.streamable_http_app(
+    host="0.0.0.0",
+    streamable_http_path="/mcp",
+    json_response=True,
+    stateless_http=True,
+)
 app.routes.insert(0, Route("/health", health, methods=["GET"]))
 app.routes.insert(1, Route("/metrics", metrics, methods=["GET"]))
 app.add_middleware(BearerAuthMiddleware)

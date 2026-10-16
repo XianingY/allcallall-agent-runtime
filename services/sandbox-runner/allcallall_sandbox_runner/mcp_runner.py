@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 import os
 from contextlib import AsyncExitStack
-from datetime import timedelta
 from types import TracebackType
 from typing import Any
 
 import anyio
-import httpx
+import httpx2
 from mcp import ClientSession, StdioServerParameters
+from mcp import types as mcp_types
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 from .models import (
     DiscoveredTool,
@@ -112,12 +112,16 @@ class open_session:
             headers = secret_headers(self.definition.config, self.secrets)
             client_factory = PinnedHTTPClientFactory(destination)
             if self.definition.transport in {"http", "streamable_http"}:
-                read, write, _ = await self.stack.enter_async_context(
-                    streamablehttp_client(
+                # mcp 2.x takes a preconfigured client instead of
+                # headers/timeout/factory kwargs, and never closes a provided
+                # client — register it on the exit stack ourselves so the
+                # pinned sockets shut down after the transport exits.
+                pinned_client = client_factory(headers=headers, timeout=httpx2.Timeout(30))
+                await self.stack.enter_async_context(pinned_client)
+                read, write = await self.stack.enter_async_context(
+                    streamable_http_client(
                         self.definition.endpoint_url,
-                        headers=headers,
-                        timeout=30,
-                        httpx_client_factory=client_factory,
+                        http_client=pinned_client,
                     )
                 )
             elif self.definition.transport == "sse":
@@ -157,7 +161,8 @@ class open_session:
         else:
             raise MCPRunnerError("unsupported MCP source type")
         session = await self.stack.enter_async_context(
-            ClientSession(read, write, read_timeout_seconds=timedelta(seconds=30))
+            # mcp 2.x takes plain seconds (float), not timedelta.
+            ClientSession(read, write, read_timeout_seconds=30.0)
         )
         try:
             await session.initialize()
@@ -182,9 +187,9 @@ class PinnedHTTPClientFactory:
     def __call__(
         self,
         headers: dict[str, str] | None = None,
-        timeout: httpx.Timeout | None = None,
-        auth: httpx.Auth | None = None,
-    ) -> httpx.AsyncClient:
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
         return secure_http_client(
             self._destination,
             headers=headers,
@@ -198,17 +203,19 @@ def map_tool(tool: Any, config: dict[str, Any]) -> DiscoveredTool:
     configured_reads = string_set(config.get("read_tools"))
     configured_writes = string_set(config.get("write_tools"))
     annotations = getattr(tool, "annotations", None)
-    annotation_read_only = bool(getattr(annotations, "readOnlyHint", False))
+    # mcp 2.x models expose snake_case attributes (input_schema,
+    # read_only_hint) instead of the 1.x camelCase wire aliases.
+    annotation_read_only = bool(getattr(annotations, "read_only_hint", False))
     risk = "unknown"
     if name in configured_writes:
         risk = "write"
     elif name in configured_reads and annotation_read_only:
         risk = "read"
-    output_schema = getattr(tool, "outputSchema", None)
+    output_schema = getattr(tool, "output_schema", None)
     return DiscoveredTool(
         name=name,
         description=str(tool.description or ""),
-        input_schema=dict(tool.inputSchema or {}),
+        input_schema=dict(tool.input_schema or {}),
         output_schema=dict(output_schema or {}),
         risk=risk,
     )
@@ -220,7 +227,11 @@ async def discover_tools(session: ClientSession, config: dict[str, Any]) -> list
     seen_cursors: set[str] = set()
     schema_bytes = 0
     for _page in range(MAX_VALIDATION_PAGES):
-        response = await session.list_tools(cursor=cursor)
+        # mcp 2.x moved the cursor into PaginatedRequestParams; None params
+        # requests the first page.
+        response = await session.list_tools(
+            params=mcp_types.PaginatedRequestParams(cursor=cursor) if cursor else None
+        )
         for tool in response.tools:
             mapped = map_tool(tool, config)
             tools.append(mapped)
@@ -236,7 +247,7 @@ async def discover_tools(session: ClientSession, config: dict[str, Any]) -> list
             if schema_bytes > MAX_VALIDATION_SCHEMA_BYTES:
                 raise MCPRunnerError("MCP tool schemas exceed configured limit")
 
-        next_cursor = getattr(response, "nextCursor", None)
+        next_cursor = getattr(response, "next_cursor", None)
         if not next_cursor:
             return tools
         if next_cursor in seen_cursors:
@@ -257,8 +268,8 @@ def normalize_tool_result(result: Any) -> dict[str, Any]:
     for item in getattr(result, "content", []) or []:
         if hasattr(item, "model_dump"):
             content.append(item.model_dump(mode="json", exclude_none=True))
-    structured = getattr(result, "structuredContent", None)
-    if getattr(result, "isError", False):
+    structured = getattr(result, "structured_content", None)
+    if getattr(result, "is_error", False):
         raise MCPRunnerError("MCP tool returned an error")
     output: dict[str, Any] = {"content": content}
     if isinstance(structured, dict):
