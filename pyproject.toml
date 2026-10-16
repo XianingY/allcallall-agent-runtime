@@ -1,5 +1,11 @@
 [tool.ruff]
-line-length = 100
+# 120, not 100: before ruff 0.17 the nested [tool.ruff] blocks in service
+# pyprojects reset `select` for those directories to ruff's minimal default,
+# so E501 was never actually enforced outside scripts/. Unifying the config
+# surfaced ~256 long lines, 237 of which sit between 100 and 120 columns —
+# the codebase's de facto width. Lines beyond 120 are fixed instead of
+# re-flowed wholesale; adopt the measured standard rather than churn.
+line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]

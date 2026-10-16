@@ -6,34 +6,33 @@ from unittest.mock import patch
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
-from pydantic import ValidationError
-
+from allcallall_rag_runtime import retrieval as retrieval_module
 from allcallall_rag_runtime.api import create_app
 from allcallall_rag_runtime.clients import build_rag_clients
-from allcallall_rag_runtime.config import config
-from allcallall_rag_runtime.config import RAGRuntimeConfig
+from allcallall_rag_runtime.config import RAGRuntimeConfig, config
 from allcallall_rag_runtime.eval_runner import load_cases, run_eval
-from allcallall_rag_runtime import retrieval as retrieval_module
+from allcallall_rag_runtime.go_bridge import GoRetrievalBridge
+from allcallall_rag_runtime.llamaindex_adapter import run_fixture_retrieval
 from allcallall_rag_runtime.main import app
+from allcallall_rag_runtime.metrics import metrics
 from allcallall_rag_runtime.models import (
     AgenticRetrievalRequest,
     ContextChunk,
     RetrievalQueryRequest,
 )
-from allcallall_rag_runtime.metrics import metrics
 from allcallall_rag_runtime.pipeline import select_retrieval_chunks
-from allcallall_rag_runtime.go_bridge import GoRetrievalBridge
 from allcallall_rag_runtime.qdrant_adapter import QdrantAdapter
-from allcallall_rag_runtime.llamaindex_adapter import run_fixture_retrieval
-from allcallall_rag_runtime.retrieval import prepare_candidates, rerank_prepared
 from allcallall_rag_runtime.retrieval import (
     agentic_retrieve,
     build_graph_expansion,
     grounding_check,
+    prepare_candidates,
     rerank,
+    rerank_prepared,
     route_query,
 )
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 
 def _rag_config(**overrides: object) -> RAGRuntimeConfig:

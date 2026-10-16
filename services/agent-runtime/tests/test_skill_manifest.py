@@ -6,7 +6,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-
 from allcallall_agent_runtime.skill_registry import (
     RISK_HIGH,
     RISK_LOW,

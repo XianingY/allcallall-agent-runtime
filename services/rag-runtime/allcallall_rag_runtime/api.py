@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 
@@ -13,16 +14,15 @@ from .models import (
     AgenticRetrievalResponse,
     GroundingCheckRequest,
     GroundingCheckResponse,
-    PreparedCandidates,
     PrepareCandidatesRequest,
-    RetrievalQueryRequest,
-    RetrievalQueryResponse,
+    PreparedCandidates,
     RerankRequest,
     RerankResponse,
+    RetrievalQueryRequest,
+    RetrievalQueryResponse,
 )
 from .pipeline import select_retrieval_chunks
 from .retrieval import agentic_retrieve, filter_chunks, grounding_check, prepare_candidates, rerank
-
 
 router = APIRouter()
 
@@ -70,7 +70,7 @@ def prometheus_metrics() -> Response:
 @router.post("/v1/retrieval/query", response_model=RetrievalQueryResponse)
 def retrieval_query(
     request: RetrievalQueryRequest,
-    clients: RAGClients = Depends(_get_clients),
+    clients: Annotated[RAGClients, Depends(_get_clients)],
 ) -> RetrievalQueryResponse:
     metrics.inc("rag_runtime_query_total")
     chunks, source = select_retrieval_chunks(request, clients=clients)
@@ -98,7 +98,7 @@ def retrieval_prepare(request: PrepareCandidatesRequest) -> PreparedCandidates:
 @router.post("/v1/retrieval/agentic", response_model=AgenticRetrievalResponse)
 def retrieval_agentic(
     request: AgenticRetrievalRequest,
-    clients: RAGClients = Depends(_get_clients),
+    clients: Annotated[RAGClients, Depends(_get_clients)],
 ) -> AgenticRetrievalResponse:
     metrics.inc("rag_runtime_agentic_total")
     chunks, source = select_retrieval_chunks(request, clients=clients)

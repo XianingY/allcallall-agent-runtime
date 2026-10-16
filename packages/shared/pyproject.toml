@@ -20,10 +20,6 @@ include = ["shared*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
-[tool.ruff]
-line-length = 100
-target-version = "py311"
-
 [tool.mypy]
 python_version = "3.11"
 strict = true

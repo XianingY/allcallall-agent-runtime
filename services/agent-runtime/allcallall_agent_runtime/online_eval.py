@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from .engineering_harness import RagEvalCase, RagEvalHarness
@@ -109,7 +109,7 @@ def build_eval_run(
         delta_vs_baseline=delta,
         target_badcase_categories=list(target_categories),
         improved=improved,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
     )
 
 

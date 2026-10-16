@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
-from dataclasses import dataclass, field
 import threading
 import time
-from typing import Any, Callable, Sequence, TypedDict, cast
+from collections.abc import Callable, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
+from dataclasses import dataclass, field
+from typing import Any, TypedDict, cast
 
 from pydantic import BaseModel
 
@@ -22,7 +23,6 @@ from ..models import Citation, RoleResult, TraceEvent
 from ..state import GraphState
 from .role_router import CANONICAL_ROLE_ORDER
 from .synthesis import memory_agent, searcher
-
 
 RoleExecutor = Callable[[GraphState], GraphState]
 

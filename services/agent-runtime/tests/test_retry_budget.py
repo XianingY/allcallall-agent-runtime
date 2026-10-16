@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import time
 
-
 import pytest
-
 from allcallall_agent_runtime.deadline import ExecutionCancelled, ExecutionDeadline, RetryBudget
-
 
 # --------------------------------------------------------------------------- #
 # ExecutionDeadline                                                            #

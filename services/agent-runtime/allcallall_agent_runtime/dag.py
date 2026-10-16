@@ -8,7 +8,6 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 
 from .config import config as app_config
-from .state import GraphState
 from .nodes import (
     approval_gate,
     collect_context,
@@ -19,19 +18,20 @@ from .nodes import (
     propose_tools,
     quality_check,
     reflect_and_plan_memory,
-    retrieval_planner,
-    retrieval_loop,
-    retrieve_context,
     rerank_context,
+    retrieval_loop,
+    retrieval_planner,
+    retrieve_context,
     risk_analyst,
     safety_check,
     searcher,
     synthesize,
 )
-from .nodes.parallel_roles import parallel_roles_node
 from .nodes.check import route_quality
+from .nodes.parallel_roles import parallel_roles_node
 from .nodes.retrieval import build_evidence_pack, grounding_check, merge, sufficiency_gate
 from .nodes.role_router import next_role_after, route_roles
+from .state import GraphState
 
 # Possible targets of the dynamic role-router conditional edges. Every router
 # edge may resolve to any role node or straight to ``merge`` (when no further

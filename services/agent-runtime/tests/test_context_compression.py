@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from allcallall_agent_runtime.config import config as app_config
 from allcallall_agent_runtime.context_compression import (
     FULL_STRATEGY,

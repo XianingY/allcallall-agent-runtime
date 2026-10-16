@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .models import (
     AgenticRetrievalRequest,
@@ -134,7 +134,8 @@ def render_markdown(report: RAGEvalReport) -> str:
     lines = [
         "# Python RAG Runtime Eval",
         "",
-        "Deterministic fixture eval for rerank ordering, agentic retrieval, grounding, and insufficient-context handling.",
+        "Deterministic fixture eval for rerank ordering, agentic retrieval, grounding, "
+        "and insufficient-context handling.",
         "",
         "## Summary",
         "",

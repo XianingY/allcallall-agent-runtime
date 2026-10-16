@@ -21,9 +21,9 @@ summarizer can be injected for production use.
 from __future__ import annotations
 
 import sqlite3
-
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 DEFAULT_MAX_TOKENS = 4000
 

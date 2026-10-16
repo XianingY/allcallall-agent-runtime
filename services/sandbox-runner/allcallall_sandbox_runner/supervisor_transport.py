@@ -13,7 +13,6 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from mcp import types
 from mcp.shared.message import SessionMessage
 
-
 MAX_FRAME_SIZE = 1024 * 1024
 _FRAME_HEADER = struct.Struct(">BI")
 

@@ -11,7 +11,8 @@ from collections import defaultdict
 from threading import Lock
 from typing import Any
 
-from ..config import config as app_config, validate_runtime_config
+from ..async_tool_queue import AsyncToolQueue, get_default_tool_queue, priority_to_int
+from ..badcase import BadcaseStore, classify_badcase
 from ..checkpoint.store import (
     CheckpointStore,
     MemoryCheckpointStore,
@@ -19,20 +20,25 @@ from ..checkpoint.store import (
     NullCheckpointStore,
     SQLiteCheckpointStore,
 )
+from ..config import config as app_config
+from ..config import validate_runtime_config
 from ..context_compression import InMemoryLongTermMemory
 from ..dag import build_workflow_graph
+from ..deadline import (
+    ExecutionCancelled,
+    get_current_deadline,
+)
 from ..helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
-from ..providers.base import LLMProvider
-from ..rag_runtime_client import RAGRuntimeClient
-from ..skill_registry import build_production_registry
-from ..tool_layer import GoToolBridgeLayer, ToolLayer
-from ..async_tool_queue import AsyncToolQueue, get_default_tool_queue, priority_to_int
-from ..badcase import BadcaseStore, classify_badcase
+from ..metrics import (
+    cancel_grace_exceeded_total,
+    cancel_requested_total,
+    cancelled_total,
+)
 from ..models import (
     AgentHarnessMetadata,
-    ApprovalDecision,
     AgentRunRequest,
     AgentRunResponse,
+    ApprovalDecision,
     ContextSufficiency,
     CriticResult,
     EvidencePack,
@@ -43,32 +49,27 @@ from ..models import (
     LoopStep,
     LoopStopReason,
     LoopTrace,
-    MemoryReflection,
     MeetingBriefRequest,
     MeetingBriefResponse,
+    MemoryReflection,
     PendingApproval,
     PendingApprovalTool,
-    ToolProposal,
     RetrievalPlan,
-    RouteDecision,
     RiskAssessment,
     RoleResult,
+    RouteDecision,
+    ToolProposal,
     TraceEvent,
     WorkflowRequest,
     WorkflowResponse,
     WorkflowResumeRequest,
 )
-from ..deadline import (
-    ExecutionCancelled,
-    get_current_deadline,
-)
-from ..metrics import (
-    cancel_grace_exceeded_total,
-    cancel_requested_total,
-    cancelled_total,
-)
 from ..prompts import prompt_version_for
 from ..providers import ProviderError, create_provider
+from ..providers.base import LLMProvider
+from ..rag_runtime_client import RAGRuntimeClient
+from ..skill_registry import build_production_registry
+from ..tool_layer import GoToolBridgeLayer, ToolLayer
 
 
 class HarnessTimeoutExceeded(TimeoutError):
@@ -188,7 +189,9 @@ def get_harness() -> AllCallAllAgentHarness:
     return _default_harness
 
 
-def _default_checkpoint_store() -> NullCheckpointStore | MySQLCheckpointStore | SQLiteCheckpointStore | MemoryCheckpointStore:
+def _default_checkpoint_store() -> (
+    NullCheckpointStore | MySQLCheckpointStore | SQLiteCheckpointStore | MemoryCheckpointStore
+):
     store = (app_config.checkpoint_store or "").strip().lower()
     if store == "mysql" or (not store and app_config.checkpoint_mysql_enabled):
         return MySQLCheckpointStore(app_config.checkpoint_mysql_dsn)
@@ -865,7 +868,9 @@ class AllCallAllAgentHarness:
                 stop_reason: LoopStopReason = "tool_error" if failed else "completed"
                 if iteration >= max_steps and not failed:
                     stop_reason = "max_iterations"
-                citation_ids = [item.chunk_id or item.source_id for item in result.citations if item.chunk_id or item.source_id]
+                citation_ids = [
+                    item.chunk_id or item.source_id for item in result.citations if item.chunk_id or item.source_id
+                ]
                 confidence = min(1.0, 0.35 + (0.15 * len(citation_ids)))
                 steps.append(
                     LoopStep(

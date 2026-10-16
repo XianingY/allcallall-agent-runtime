@@ -33,7 +33,6 @@ from .security import (
 )
 from .supervisor_transport import SupervisorTransportError, supervisor_client
 
-
 MAX_VALIDATION_PAGES = 16
 MAX_VALIDATION_TOOLS = 256
 MAX_VALIDATION_SCHEMA_BYTES = 1024 * 1024

@@ -28,9 +28,9 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, runtime_checkable
-
+from typing import Any, Protocol, runtime_checkable
 
 # Priority labels (as used by ToolProposal) mapped to queue ordering integers.
 # Lower number = higher priority (claimed first).

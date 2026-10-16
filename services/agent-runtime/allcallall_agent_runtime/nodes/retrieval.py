@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-
+from ..deadline import get_current_deadline
+from ..helpers import (
+    chunk_key,
+    citations_from_chunks,
+    dedupe_citations,
+    estimate_retrieval_confidence,
+    evaluate_context_sufficiency,
+    first_non_empty,
+    local_agentic_retrieval,
+    summarize_observation,
+    unique_strings,
+)
 from ..models import (
     ContextChunk,
     ContextSufficiency,
@@ -21,22 +32,9 @@ from ..retrieval import (
     rerank_context_chunks,
     rerank_prepared,
 )
-from ..tool_bridge import ToolBridgeError
-from ..helpers import (
-    chunk_key,
-    citations_from_chunks,
-    dedupe_citations,
-    estimate_retrieval_confidence,
-    evaluate_context_sufficiency,
-    first_non_empty,
-    local_agentic_retrieval,
-    summarize_observation,
-    unique_strings,
-)
-from ..deadline import get_current_deadline
 from ..state import GraphState
 from ..synthesis import synthesize_action_items
-
+from ..tool_bridge import ToolBridgeError
 
 # --------------------------------------------------------------------------- #
 # Task 12: retrieval ownership helpers                                          #
@@ -402,7 +400,9 @@ def build_evidence_pack(state: GraphState) -> GraphState:
         if chunk.snippet:
             snippets.append(chunk.snippet[:200])
     confidence = estimate_retrieval_confidence(request, chunks)
-    coverage = len(set(source_types).intersection(route.required_source_types)) / max(len(route.required_source_types), 1)
+    coverage = (
+        len(set(source_types).intersection(route.required_source_types)) / max(len(route.required_source_types), 1)
+    )
     pack = EvidencePack(
         selected_chunk_ids=selected_ids,
         source_types=source_types,
@@ -430,7 +430,11 @@ def sufficiency_gate(state: GraphState) -> GraphState:
             node="sufficiency_gate",
             status="completed" if result.sufficient else "insufficient",
             observation=result.reason,
-            metadata={"sufficient": result.sufficient, "confidence": result.confidence, "missing_info": result.missing_info},
+            metadata={
+                "sufficient": result.sufficient,
+                "confidence": result.confidence,
+                "missing_info": result.missing_info,
+            },
         )
     )
     trace.append(TraceEvent(event="graph.node.completed", node="sufficiency_gate", status="completed"))

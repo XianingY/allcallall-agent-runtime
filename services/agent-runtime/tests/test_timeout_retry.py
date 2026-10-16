@@ -6,10 +6,9 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
+import allcallall_agent_runtime.config as cfg
 import anyio
 import pytest
-
-import allcallall_agent_runtime.config as cfg
 from allcallall_agent_runtime.checkpoint.store import NullCheckpointStore
 from allcallall_agent_runtime.harness import AllCallAllAgentHarness, HarnessTimeoutExceeded
 from allcallall_agent_runtime.retry import with_retry, with_retry_async
@@ -199,6 +198,7 @@ def _minimal_request() -> Any:
 def test_set_invoke_executor_injects_executor() -> None:
     """set_invoke_executor injects an executor that _get_invoke_executor returns."""
     import concurrent.futures
+
     from allcallall_agent_runtime.orchestration.harness import (
         _get_invoke_executor,
         set_invoke_executor,
@@ -216,6 +216,7 @@ def test_set_invoke_executor_injects_executor() -> None:
 def test_shutdown_invoke_executor_closes_injected() -> None:
     """shutdown_invoke_executor shuts down the injected executor."""
     import concurrent.futures
+
     from allcallall_agent_runtime.orchestration.harness import (
         _get_invoke_executor,
         set_invoke_executor,
@@ -234,11 +235,11 @@ def test_shutdown_invoke_executor_closes_injected() -> None:
 
 def test_invoke_executor_sized_from_config() -> None:
     """The invoke executor is sized from effective_max_active_runs."""
+    from allcallall_agent_runtime.config import config, effective_max_active_runs
     from allcallall_agent_runtime.orchestration.harness import (
         _get_invoke_executor,
         shutdown_invoke_executor,
     )
-    from allcallall_agent_runtime.config import effective_max_active_runs, config
 
     # Clean up any existing executor
     shutdown_invoke_executor(wait=False)
@@ -259,6 +260,7 @@ def test_invoke_executor_sized_from_config() -> None:
 def test_execution_deadline_from_header_valid() -> None:
     """A valid RFC3339 deadline header produces a non-expired deadline."""
     import time as _time
+
     from allcallall_agent_runtime.deadline import ExecutionDeadline
 
     future = _time.strftime("%Y-%m-%dT%H:%M:%S+00:00", _time.gmtime(_time.time() + 60))

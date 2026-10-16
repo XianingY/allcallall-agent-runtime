@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from shared.models import ContextChunk
 from shared.scoring import rules_score, rules_score_agent, rules_score_rag, tokenize
 

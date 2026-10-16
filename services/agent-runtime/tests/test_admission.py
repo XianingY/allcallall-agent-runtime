@@ -7,10 +7,8 @@ import time
 from dataclasses import dataclass, field
 
 import pytest
-
 from allcallall_agent_runtime.admission import AdmissionController, AdmissionLease, AdmissionRejected
 from allcallall_agent_runtime.config import AgentRuntimeConfig, effective_max_active_runs
-
 
 # ---------------------------------------------------------------------------
 # Helpers

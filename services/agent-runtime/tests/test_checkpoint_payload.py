@@ -12,22 +12,17 @@ Covers:
 
 from __future__ import annotations
 
-import json
 import base64
+import json
 from pathlib import Path
 from typing import Any, TypedDict
 
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.base import Checkpoint
-from langgraph.graph import END, StateGraph
-
 from allcallall_agent_runtime.checkpoint.mysql import MySQLCheckpointSaver
-from allcallall_agent_runtime.checkpoint.sqlite_saver import SQLiteCheckpointSaver
 from allcallall_agent_runtime.checkpoint.payload import (
     project_checkpoint_state,
     serialized_checkpoint_size,
 )
+from allcallall_agent_runtime.checkpoint.sqlite_saver import SQLiteCheckpointSaver
 from allcallall_agent_runtime.metrics import checkpoint_payload_bytes, get_default_prometheus_registry
 from allcallall_agent_runtime.models import (
     Citation,
@@ -38,6 +33,10 @@ from allcallall_agent_runtime.models import (
     RoleResult,
     TraceEvent,
 )
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import Checkpoint
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.graph import END, StateGraph
 
 
 def _chunk(source_type: str, source_id: str = "s1", snippet: str = "") -> ContextChunk:
@@ -79,7 +78,9 @@ def _sample_state() -> dict[str, Any]:
         "retrieval_cache": object(),  # Per-run cache
         "trace_events": [
             TraceEvent(event="graph.node.started", node="collect_context", status="running"),
-            TraceEvent(event="rag.observe", node="retrieval_loop", status="completed", tool_name="query_context_chunks"),
+            TraceEvent(
+                event="rag.observe", node="retrieval_loop", status="completed", tool_name="query_context_chunks"
+            ),
             TraceEvent(event="graph.node.completed", node="retrieval_loop", status="completed"),
         ],
         "agentic_context_chunks": [_chunk("meeting_transcript", "a"), _chunk("knowledge", "b")],

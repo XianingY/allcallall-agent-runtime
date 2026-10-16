@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -223,14 +223,14 @@ class WorkflowEvalReport(BaseModel):
     cases: list[WorkflowEvalCaseResult] = Field(default_factory=list)
 
 
-class BadcaseSource(str, Enum):
+class BadcaseSource(StrEnum):
     AUTO_REVIEW = "auto_review"          # L1/L2 CheckAgent verdict
     AUTO_RUNTIME = "auto_runtime"        # failed/timeout/grounding
     SAMPLING_AUDIT = "sampling_audit"    # offline human audit
     USER_FEEDBACK = "user_feedback"      # Phase 2: user thumbs-down / dismiss
 
 
-class BadcaseCategory(str, Enum):
+class BadcaseCategory(StrEnum):
     RETRIEVAL_MISS = "retrieval_miss"            # 检索漏召/错召
     HALLUCINATION = "hallucination"              # 引用不实/编造
     ROUTE_ERROR = "route_error"                  # 意图路由错误
@@ -242,7 +242,7 @@ class BadcaseCategory(str, Enum):
     RUNTIME_ERROR = "runtime_error"              # 通用运行时失败（自动）
 
 
-class BadcaseSeverity(str, Enum):
+class BadcaseSeverity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"

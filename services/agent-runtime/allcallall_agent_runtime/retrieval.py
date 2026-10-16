@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 
 from .models import ContextChunk, TraceEvent
 
-
 CacheKey = tuple[str, str, str, str, str]
 """Cache key: (normalized_query, source_scope, retrieval_policy, context_fingerprint, corpus_version)."""
 

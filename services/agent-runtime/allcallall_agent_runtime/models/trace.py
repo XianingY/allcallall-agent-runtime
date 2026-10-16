@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -69,7 +69,7 @@ class LoopTrace(BaseModel):
     termination_signal: TerminationSignal | None = None
 
 
-class TerminationTrigger(str, Enum):
+class TerminationTrigger(StrEnum):
     """Deterministic reason a bounded ReAct loop stopped (Module 1).
 
     ``MAX_ITERATIONS`` is the hard backstop that always fires when no earlier

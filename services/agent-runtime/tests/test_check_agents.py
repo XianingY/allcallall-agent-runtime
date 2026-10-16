@@ -12,11 +12,6 @@ from typing import cast
 
 from allcallall_agent_runtime.dag import build_workflow_graph
 from allcallall_agent_runtime.models import CriticResult, ToolProposal
-from allcallall_agent_runtime.nodes.role_router import (
-    EarlyTerminationThresholds,
-    should_terminate_early,
-)
-from allcallall_agent_runtime.state import GraphState
 from allcallall_agent_runtime.nodes.check import (
     CheckDecision,
     quality_check,
@@ -24,6 +19,11 @@ from allcallall_agent_runtime.nodes.check import (
     route_safety,
     safety_check,
 )
+from allcallall_agent_runtime.nodes.role_router import (
+    EarlyTerminationThresholds,
+    should_terminate_early,
+)
+from allcallall_agent_runtime.state import GraphState
 
 
 def _critic(passed: bool, issues: list[str], context_sufficient: bool, coverage: float = 0.0) -> CriticResult:

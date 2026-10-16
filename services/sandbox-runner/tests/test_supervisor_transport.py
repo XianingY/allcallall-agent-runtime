@@ -14,15 +14,19 @@ from typing import Any
 import anyio
 import httpx
 import pytest
-from anyio.abc import ByteReceiveStream, ByteStream
-from mcp import types
-
 from allcallall_sandbox_runner import mcp_runner
 from allcallall_sandbox_runner.main import app
-from allcallall_sandbox_runner.mcp_runner import MCPRunnerError, discover_tools, execute_tool, open_session, validate_installation
+from allcallall_sandbox_runner.mcp_runner import (
+    MCPRunnerError,
+    discover_tools,
+    execute_tool,
+    open_session,
+    validate_installation,
+)
 from allcallall_sandbox_runner.models import ExecutionRequest, InstallationDefinition, ValidationRequest
-from allcallall_sandbox_runner.supervisor_transport import FrameKind, MAX_FRAME_SIZE
-
+from allcallall_sandbox_runner.supervisor_transport import MAX_FRAME_SIZE, FrameKind
+from anyio.abc import ByteReceiveStream, ByteStream
+from mcp import types
 
 _HEADER = struct.Struct(">BI")
 _Handler = Callable[[ByteStream], Awaitable[None]]

@@ -3,10 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from allcallall_sandbox_runner.main import app, claim_one_shot, health, reset_one_shot_for_test
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-
-from allcallall_sandbox_runner.main import app, claim_one_shot, health, reset_one_shot_for_test
 
 
 @pytest.fixture(autouse=True)

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import time
-import httpx
-import pytest
 from typing import Any
 
 import allcallall_agent_runtime.config as _cfg
+import httpx
+import pytest
 from allcallall_agent_runtime.models import RetrievalPlan, RetrievalPlanStep, WorkflowRequest
 from allcallall_agent_runtime.providers import ProviderError
 from allcallall_agent_runtime.providers.openai_compatible import OpenAICompatibleProvider
+from allcallall_agent_runtime.rag_runtime_client import RAGRuntimeClient
 from allcallall_agent_runtime.retry import with_retry
 from allcallall_agent_runtime.tool_bridge import GoToolBridge, ToolBridgeError
-from allcallall_agent_runtime.rag_runtime_client import RAGRuntimeClient
 
 
 def _provider(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> OpenAICompatibleProvider:
@@ -173,7 +173,11 @@ def test_rag_retries_503_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
             return httpx.Response(503)
         return httpx.Response(
             200,
-            json={"evidence_pack": {"citations": [], "confidence": 0.9}, "context_sufficiency": {"sufficient": True}, "attempts": [{}]},
+            json={
+                "evidence_pack": {"citations": [], "confidence": 0.9},
+                "context_sufficiency": {"sufficient": True},
+                "attempts": [{}],
+            },
         )
 
     rag = _rag(monkeypatch)

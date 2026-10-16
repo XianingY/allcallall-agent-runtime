@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ..deadline import get_current_deadline
 from ..helpers import (
     WORKFLOW_CONTEXT_QA,
     WORKFLOW_FOLLOW_UP_PLANNER,
@@ -25,9 +26,8 @@ from ..helpers import (
     WORKFLOW_REACT_GENERAL,
     WORKFLOW_RISK_REVIEW,
 )
-from ..models import TraceEvent, WorkflowRequest
-from ..deadline import get_current_deadline
 from ..metrics import early_termination_decisions_total, role_router_selected_roles_total
+from ..models import TraceEvent, WorkflowRequest
 from ..state import GraphState, RoleAllocation
 
 # Canonical execution order. All preset role lists are subsequences of this so

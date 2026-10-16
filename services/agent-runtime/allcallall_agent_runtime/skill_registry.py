@@ -71,7 +71,7 @@ class Skill:
     source: str = "inline"
     instruction_sha256: str = ""
 
-    def with_snapshot(self) -> "Skill":
+    def with_snapshot(self) -> Skill:
         return Skill(
             name=self.name,
             instructions=self.instructions,

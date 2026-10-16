@@ -14,7 +14,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .models import (
@@ -91,7 +91,7 @@ def classify_badcase(
         return None
 
     final_source = source or detected_source or BadcaseSource.AUTO_RUNTIME
-    created_at = (now or datetime.now(timezone.utc)).isoformat()
+    created_at = (now or datetime.now(UTC)).isoformat()
     return BadcaseRecord(
         id=uuid.uuid4().hex,
         created_at=created_at,
@@ -185,7 +185,7 @@ class BadcaseStore:
         record.label_corrected_response = corrected_response
         record.label_note = note
         record.labeled_by = by
-        record.labeled_at = datetime.now(timezone.utc).isoformat()
+        record.labeled_at = datetime.now(UTC).isoformat()
         record.status = "labeled"
         record.sft_eligible = sft_eligible
         self.save(record)

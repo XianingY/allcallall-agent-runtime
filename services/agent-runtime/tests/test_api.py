@@ -3,17 +3,14 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import patch
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 import pytest
-
 from allcallall_agent_runtime.admission import AdmissionController
 from allcallall_agent_runtime.api.app import _lifespan, create_app
-from allcallall_agent_runtime.harness import AllCallAllAgentHarness, get_harness
-from allcallall_agent_runtime.harness import shutdown_invoke_executor
+from allcallall_agent_runtime.harness import AllCallAllAgentHarness, get_harness, shutdown_invoke_executor
 from allcallall_agent_runtime.main import app
 from allcallall_agent_runtime.models import AgentRunRequest, ToolProposal, WorkflowRequest, WorkflowResponse
-
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 EXPECTED_ROUTES = {
     ("GET", "/docs"),
@@ -92,6 +89,7 @@ def test_app_lifespan_creates_admission_controller() -> None:
 def test_app_lifespan_injects_executor_into_harness() -> None:
     """The lifespan injects the executor into the harness module."""
     import concurrent.futures
+
     from allcallall_agent_runtime.orchestration.harness import _get_invoke_executor
 
     created_app = create_app()

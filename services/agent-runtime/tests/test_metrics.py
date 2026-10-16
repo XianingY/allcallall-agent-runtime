@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import threading
 
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
-
 from allcallall_agent_runtime.metrics import (
     MetricsRegistry,
     _Counter,
     get_default_prometheus_registry,
 )
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
 
 class TestCounterCompat:

@@ -5,7 +5,8 @@ from typing import Any
 
 import httpx
 
-from .config import RAGRuntimeConfig, config as default_config
+from .config import RAGRuntimeConfig
+from .config import config as default_config
 from .http_requests import build_http_client, post_json_without_cookies, service_request_timeout
 from .metrics import metrics
 from .models import ContextChunk, RetrievalQueryRequest

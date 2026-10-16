@@ -16,16 +16,16 @@ recorded as a ``check.decision`` trace event so the loop is fully auditable.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from ..config import config as app_config
-from ..models import OutputDecision, TraceEvent
 from ..deadline import get_current_deadline
+from ..models import OutputDecision, TraceEvent
 from ..state import GraphState
 
 
-class CheckDecision(str, Enum):
+class CheckDecision(StrEnum):
     PASS = "pass"
     REVISE = "revise"
     ESCALATE = "escalate"
