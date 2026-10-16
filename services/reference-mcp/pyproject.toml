@@ -5,7 +5,7 @@ description = "Deterministic HTTPS MCP reference service for AllCallAll integrat
 requires-python = ">=3.11"
 dependencies = [
   "mcp>=1.0.0,<2",
-  "uvicorn[standard]>=0.30,<1",
+  "uvicorn[standard]>=0.54.0,<1",
 ]
 
 [project.optional-dependencies]
