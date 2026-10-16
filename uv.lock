@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -361,7 +361,7 @@ source = { virtual = "services/sandbox-runner" }
 dependencies = [
     { name = "anyio" },
     { name = "fastapi" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "pydantic" },
     { name = "uvicorn", extra = ["standard"] },
@@ -369,6 +369,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
@@ -378,7 +379,8 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = ">=4,<5" },
     { name = "fastapi", specifier = ">=0.111,<1" },
-    { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27,<1" },
+    { name = "httpx2", specifier = ">=2.13,<3" },
     { name = "mcp", specifier = ">=2.3.0,<3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=2.4.0,<3" },
     { name = "pydantic", specifier = ">=2.7,<3" },

@@ -5,14 +5,18 @@ requires-python = ">=3.11"
 dependencies = [
   "anyio>=4,<5",
   "fastapi>=0.111,<1",
-  "httpx>=0.27,<1",
+  # mcp 2.x builds its client transports on httpx2; the pinned SSRF transport
+  # in security.py subclasses httpx2.AsyncBaseTransport directly.
+  "httpx2>=2.13,<3",
   "mcp>=2.3.0,<3",
   "pydantic>=2.7,<3",
   "uvicorn[standard]>=0.54.0,<1",
 ]
 
 [project.optional-dependencies]
-dev = ["mypy>=2.4.0,<3", "pytest>=9.1.1,<10", "ruff>=0.17.0,<0.18"]
+# httpx stays for the test harness: tests exercise the runner's own ASGI API
+# with httpx.ASGITransport, which is unrelated to the MCP client stack.
+dev = ["httpx>=0.27,<1", "mypy>=2.4.0,<3", "pytest>=9.1.1,<10", "ruff>=0.17.0,<0.18"]
 
 [tool.setuptools.packages.find]
 include = ["allcallall_sandbox_runner*"]

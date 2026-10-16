@@ -391,8 +391,8 @@ class _PagedSession:
         self.pages = pages
         self.calls = 0
 
-    async def list_tools(self, cursor: str | None = None) -> types.ListToolsResult:
-        del cursor
+    async def list_tools(self, *, params: object | None = None) -> types.ListToolsResult:
+        del params
         page = self.pages[min(self.calls, len(self.pages) - 1)]
         self.calls += 1
         return page
@@ -402,14 +402,14 @@ class _EndlessSession:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def list_tools(self, cursor: str | None = None) -> types.ListToolsResult:
-        del cursor
+    async def list_tools(self, *, params: object | None = None) -> types.ListToolsResult:
+        del params
         self.calls += 1
-        return types.ListToolsResult(tools=[], nextCursor=f"page-{self.calls}")
+        return types.ListToolsResult(tools=[], next_cursor=f"page-{self.calls}")
 
 
 def _tool(name: str, schema: dict[str, Any] | None = None) -> types.Tool:
-    return types.Tool(name=name, inputSchema=schema or {"type": "object"})
+    return types.Tool(name=name, input_schema=schema or {"type": "object"})
 
 
 @pytest.mark.anyio

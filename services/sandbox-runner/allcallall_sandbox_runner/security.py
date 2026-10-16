@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import anyio
-import httpx
+import httpx2
 
 
 class RunnerSecurityError(RuntimeError):
@@ -108,19 +108,19 @@ async def validate_https_endpoint(
     return ResolvedHTTPSDestination(hostname=hostname, port=port, ip_address=addresses[0])
 
 
-class PinnedHTTPSAsyncTransport(httpx.AsyncBaseTransport):
+class PinnedHTTPSAsyncTransport(httpx2.AsyncBaseTransport):
     """Connect to a validated IP while preserving the original TLS identity."""
 
     def __init__(
         self,
         destination: ResolvedHTTPSDestination,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
     ) -> None:
         self._destination = destination
         verify = os.getenv("MCP_CA_CERT_FILE", "").strip() or True
-        self._transport = transport or httpx.AsyncHTTPTransport(trust_env=False, verify=verify)
+        self._transport = transport or httpx2.AsyncHTTPTransport(trust_env=False, verify=verify)
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         request_hostname = request.url.host.encode("idna").decode("ascii").lower().rstrip(".")
         request_port = request.url.port or 443
         if (
@@ -134,7 +134,7 @@ class PinnedHTTPSAsyncTransport(httpx.AsyncBaseTransport):
         headers["Host"] = self._destination.authority
         extensions = dict(request.extensions)
         extensions["sni_hostname"] = self._destination.hostname
-        pinned_request = httpx.Request(
+        pinned_request = httpx2.Request(
             method=request.method,
             url=request.url.copy_with(host=self._destination.ip_address),
             headers=headers,
@@ -150,10 +150,10 @@ class PinnedHTTPSAsyncTransport(httpx.AsyncBaseTransport):
 def secure_http_client(
     destination: ResolvedHTTPSDestination,
     headers: dict[str, str] | None = None,
-    timeout: httpx.Timeout | None = None,
-    auth: httpx.Auth | None = None,
-) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
+    timeout: httpx2.Timeout | None = None,
+    auth: httpx2.Auth | None = None,
+) -> httpx2.AsyncClient:
+    return httpx2.AsyncClient(
         headers=headers,
         timeout=timeout,
         auth=auth,
@@ -169,7 +169,7 @@ async def unwrap_secrets(wrapping_token: str) -> dict[str, str]:
     address = os.getenv("OPENBAO_ADDR", "").strip().rstrip("/")
     if not address:
         raise RunnerSecurityError("OpenBao address is not configured")
-    async with httpx.AsyncClient(timeout=5, follow_redirects=False, trust_env=False) as client:
+    async with httpx2.AsyncClient(timeout=5, follow_redirects=False, trust_env=False) as client:
         response = await client.post(
             f"{address}/v1/sys/wrapping/unwrap",
             headers={"X-Vault-Token": wrapping_token},

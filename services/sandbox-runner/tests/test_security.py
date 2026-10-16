@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import socket
 
-import httpx
+import httpx2
 import pytest
 from allcallall_sandbox_runner.models import ExecutionRequest
 from allcallall_sandbox_runner.security import (
@@ -117,17 +117,17 @@ async def test_https_endpoint_returns_one_validated_public_address(monkeypatch: 
 
 @pytest.mark.anyio
 async def test_transport_pins_ip_and_preserves_tls_identity() -> None:
-    async def handler(request: httpx.Request) -> httpx.Response:
+    async def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.url.host == "1.1.1.1"
         assert request.headers["host"] == "mcp.example.com"
         assert request.extensions["sni_hostname"] == "mcp.example.com"
-        return httpx.Response(200, json={"ok": True})
+        return httpx2.Response(200, json={"ok": True})
 
     transport = PinnedHTTPSAsyncTransport(
         ResolvedHTTPSDestination("mcp.example.com", 443, "1.1.1.1"),
-        transport=httpx.MockTransport(handler),
+        transport=httpx2.MockTransport(handler),
     )
-    async with httpx.AsyncClient(transport=transport) as client:
+    async with httpx2.AsyncClient(transport=transport) as client:
         response = await client.get("https://mcp.example.com/rpc")
 
     assert response.json() == {"ok": True}
@@ -137,8 +137,8 @@ async def test_transport_pins_ip_and_preserves_tls_identity() -> None:
 async def test_transport_rejects_cross_origin_request() -> None:
     transport = PinnedHTTPSAsyncTransport(
         ResolvedHTTPSDestination("mcp.example.com", 443, "1.1.1.1"),
-        transport=httpx.MockTransport(lambda _request: httpx.Response(200)),
+        transport=httpx2.MockTransport(lambda _request: httpx2.Response(200)),
     )
-    async with httpx.AsyncClient(transport=transport) as client:
+    async with httpx2.AsyncClient(transport=transport) as client:
         with pytest.raises(RunnerSecurityError):
             await client.get("https://attacker.example/rpc")
