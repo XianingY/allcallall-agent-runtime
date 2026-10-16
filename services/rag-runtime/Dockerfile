@@ -1,7 +1,7 @@
 # Builder stage: resolves and installs the frozen dependency set with uv. The
 # build tooling (uv, uvx, the lockfile) stays in this stage and never reaches
 # the runtime image.
-FROM python:3.11-slim@sha256:0dd364ba7e10242f07755449e3a3d0e35f9efd987952737b90def6709ab0c5ce AS builder
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS builder
 
 WORKDIR /app
 
@@ -24,7 +24,7 @@ RUN uv sync --frozen --no-dev --no-cache --no-editable --project services/rag-ru
 # Runtime stage: only the frozen venv and the application source. Ownership is
 # set inline on COPY; a chown -R pass would duplicate every file into a new
 # layer and bloat the image.
-FROM python:3.11-slim@sha256:0dd364ba7e10242f07755449e3a3d0e35f9efd987952737b90def6709ab0c5ce AS runtime
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS runtime
 
 # Drop to a non-root user (matches the USER 10001 precedent used across the
 # repo). uvicorn listens on 8091 (>1024), so no privileged bind is required.
