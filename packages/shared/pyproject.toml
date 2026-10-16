@@ -11,7 +11,7 @@ dependencies = [
 dev = [
   "mypy>=2.4.0,<3",
   "pytest>=9.1.1,<10",
-  "ruff>=0.15,<0.16",
+  "ruff>=0.17.0,<0.18",
 ]
 
 [tool.setuptools.packages.find]
