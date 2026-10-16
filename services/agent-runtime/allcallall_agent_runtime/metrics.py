@@ -14,7 +14,6 @@ Prometheus metrics in the ``/metrics`` endpoint.
 from __future__ import annotations
 
 import threading
-from typing import Dict
 
 from prometheus_client import (
     CollectorRegistry,
@@ -23,7 +22,6 @@ from prometheus_client import (
     Histogram,
     generate_latest,
 )
-
 
 # ---------------------------------------------------------------------------
 # Bounded Prometheus metrics (no unbounded labels)
@@ -258,7 +256,7 @@ class MetricsRegistry:
     """
 
     def __init__(self, *, prom_registry: CollectorRegistry | None = None) -> None:
-        self._counters: Dict[str, _Counter] = {}
+        self._counters: dict[str, _Counter] = {}
         self._lock = threading.Lock()
         self._prom_registry = prom_registry or _default_registry
 

@@ -16,7 +16,6 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-
 # Keys that are always removed because they hold non-serializable runtime objects
 # or per-run caches that must not be persisted.
 _EXCLUDED_KEYS: frozenset[str] = frozenset({

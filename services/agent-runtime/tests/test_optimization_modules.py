@@ -10,12 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
-
 from allcallall_agent_runtime.config import config as app_config
 from allcallall_agent_runtime.context_compression import SQLiteLongTermMemory
-from allcallall_agent_runtime.dag import build_workflow_graph
-from allcallall_agent_runtime.dag import _route_first
+from allcallall_agent_runtime.dag import _route_first, build_workflow_graph
 from allcallall_agent_runtime.main import app
 from allcallall_agent_runtime.mcp_tools import (
     EXEC_ASYNC,
@@ -28,13 +25,19 @@ from allcallall_agent_runtime.models import (
     Citation,
     ContextChunk,
     InputAttachment,
+    IntentRoute,
     MeetingBriefRequest,
     OutputDecision,
+    RetrievalPlan,
+    RetrievalPlanStep,
     TerminationSignal,
     TerminationTrigger,
 )
-from allcallall_agent_runtime.tool_bridge import ToolObservation
 from allcallall_agent_runtime.nodes.check import quality_check, safety_check
+from allcallall_agent_runtime.nodes.retrieval import (
+    _effective_retrieval_mode,
+    _should_call_rag,
+)
 from allcallall_agent_runtime.nodes.role_router import (
     classify_complexity,
     next_role_after,
@@ -45,24 +48,16 @@ from allcallall_agent_runtime.nodes.synthesis import (
     _inline_checkagent_should_stop,
     bounded_react_search,
 )
-from allcallall_agent_runtime.state import GraphState, RoleAllocation
-from allcallall_agent_runtime.tool_layer import StubGoToolBridge
 from allcallall_agent_runtime.retrieval import (
     RunRetrievalCache,
     compute_context_fingerprint,
     prepare_candidates,
     rerank_prepared,
 )
-from allcallall_agent_runtime.nodes.retrieval import (
-    _effective_retrieval_mode,
-    _should_call_rag,
-)
-from allcallall_agent_runtime.models import (
-    RetrievalPlan,
-    IntentRoute,
-    RetrievalPlanStep,
-)
-
+from allcallall_agent_runtime.state import GraphState, RoleAllocation
+from allcallall_agent_runtime.tool_bridge import ToolObservation
+from allcallall_agent_runtime.tool_layer import StubGoToolBridge
+from fastapi.testclient import TestClient
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                      #
@@ -407,7 +402,9 @@ def test_tool_queue_metrics_endpoint() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _request_with_mode(retrieval_mode: str = "", context_chunks: list[ContextChunk] | None = None) -> MeetingBriefRequest:
+def _request_with_mode(
+    retrieval_mode: str = "", context_chunks: list[ContextChunk] | None = None
+) -> MeetingBriefRequest:
     return MeetingBriefRequest(
         organization_id=1,
         user_id=1,
@@ -542,8 +539,12 @@ class TestPrepareCandidates:
 
     def test_rerank_prepared_returns_reranked_chunks(self) -> None:
         chunks = [
-            ContextChunk(chunk_id="mt-1", source_type="meeting_transcript", source_id="1", snippet="meeting content", score=50),
-            ContextChunk(chunk_id="kb-1", source_type="knowledge", source_id="2", snippet="knowledge content", score=90),
+            ContextChunk(
+                chunk_id="mt-1", source_type="meeting_transcript", source_id="1", snippet="meeting content", score=50
+            ),
+            ContextChunk(
+                chunk_id="kb-1", source_type="knowledge", source_id="2", snippet="knowledge content", score=90
+            ),
         ]
         prepared = prepare_candidates("test query", chunks)
         output = rerank_prepared(prepared, top_k=2)

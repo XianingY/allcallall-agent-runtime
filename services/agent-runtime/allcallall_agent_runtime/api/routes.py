@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
@@ -10,13 +11,13 @@ from ..api_auth import require_auth
 from ..async_tool_queue import get_default_tool_queue
 from ..config import config as runtime_config
 from ..deadline import ExecutionCancelled, ExecutionDeadline, set_current_deadline
-from ..helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
 from ..harness import (
     CheckpointConflictError,
     CheckpointVersionConflictError,
     HarnessTimeoutExceeded,
     get_harness,
 )
+from ..helpers import SUPPORTED_WORKFLOWS, normalize_workflow_preset
 from ..metrics import (
     cancelled_total,
     registry,
@@ -51,7 +52,9 @@ def _parse_deadline_from_headers(request: Request) -> ExecutionDeadline:
     """
     deadline_header = request.headers.get("x-allcallall-deadline")
     attempt_header = request.headers.get("x-allcallall-attempt")
-    default_seconds = float(runtime_config.request_timeout_seconds) if runtime_config.request_timeout_seconds > 0 else 120.0
+    default_seconds = (
+        float(runtime_config.request_timeout_seconds) if runtime_config.request_timeout_seconds > 0 else 120.0
+    )
     deadline = ExecutionDeadline.from_header(deadline_header, default_seconds=default_seconds)
     if attempt_header:
         logger.debug("execution attempt=%s deadline_remaining=%.1fs", attempt_header, deadline.remaining_seconds())

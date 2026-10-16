@@ -5,8 +5,6 @@ import json
 from typing import Any
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
-
 from allcallall_agent_runtime.api.app import create_app
 from allcallall_agent_runtime.checkpoint.store import SQLiteCheckpointStore
 from allcallall_agent_runtime.main import app
@@ -23,7 +21,7 @@ from allcallall_agent_runtime.orchestration.harness import (
     AllCallAllAgentHarness,
     CheckpointVersionConflictError,
 )
-
+from fastapi.testclient import TestClient
 
 GO_INITIAL_REQUEST: dict[str, Any] = {
     "request_id": "req-1",

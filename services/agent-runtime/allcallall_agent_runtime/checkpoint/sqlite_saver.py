@@ -10,22 +10,21 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from typing import Any, Iterator, Sequence, cast
+from collections.abc import AsyncIterator, Iterator, Sequence
+from typing import Any, cast
 
+import anyio
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     WRITES_IDX_MAP,
     BaseCheckpointSaver,
+    ChannelVersions,
     Checkpoint,
     CheckpointMetadata,
     CheckpointTuple,
-    ChannelVersions,
     get_checkpoint_id,
     get_checkpoint_metadata,
 )
-from collections.abc import AsyncIterator
-
-import anyio
 
 from .mysql import checkpoint_safe_config, optional_int
 from .payload import project_checkpoint_state

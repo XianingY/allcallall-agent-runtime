@@ -13,7 +13,6 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 from starlette.routing import Route
 
-
 DB_PATH = Path(os.getenv("INTERVIEW_MCP_DB_PATH", "/data/tickets.sqlite3"))
 TOKEN_FILE = Path(os.getenv("INTERVIEW_MCP_BEARER_TOKEN_FILE", "/run/secrets/mcp-bearer-token"))
 

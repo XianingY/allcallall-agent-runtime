@@ -5,22 +5,8 @@ from __future__ import annotations
 import threading
 from typing import Literal
 
-
-from ..models import (
-    Citation,
-    ContextChunk,
-    ContextSufficiency,
-    MemoryReflection,
-    RiskAssessment,
-    RoleResult,
-    TerminationSignal,
-    TerminationTrigger,
-    TraceEvent,
-    WorkflowRequest,
-)
-from ..tool_bridge import ToolBridgeError
-from ..tool_layer import ToolBridgeLike
 from ..config import config as app_config
+from ..deadline import ExecutionCancelled, get_current_deadline
 from ..helpers import (
     READ_TOOL_CONTEXT_CHUNKS,
     READ_TOOL_RECENT_MEETINGS,
@@ -35,14 +21,27 @@ from ..helpers import (
     top_snippets,
     unique_strings,
 )
+from ..models import (
+    Citation,
+    ContextChunk,
+    ContextSufficiency,
+    MemoryReflection,
+    RiskAssessment,
+    RoleResult,
+    TerminationSignal,
+    TerminationTrigger,
+    TraceEvent,
+    WorkflowRequest,
+)
+from ..state import GraphState
 from ..synthesis import (
     infer_risk_flags,
     synthesize_action_items,
     synthesize_next_step,
     synthesize_summary,
 )
-from ..deadline import ExecutionCancelled, get_current_deadline
-from ..state import GraphState
+from ..tool_bridge import ToolBridgeError
+from ..tool_layer import ToolBridgeLike
 from .role_router import CANONICAL_ROLE_ORDER, EarlyTerminationThresholds, should_terminate_early
 
 __all__ = [

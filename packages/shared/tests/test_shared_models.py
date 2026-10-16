@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-
 from shared.models import (
     ContextChunk,
     ContextSufficiency,
@@ -60,7 +59,9 @@ class TestContextChunk:
             snippet="text",
             custom_field="custom_value",
         )
-        assert getattr(chunk, "custom_field") == "custom_value"
+        # custom_field is a Pydantic extra, not a declared attribute; access
+        # it through model_extra so both mypy strict and ruff B009 agree.
+        assert (chunk.model_extra or {}).get("custom_field") == "custom_value"
 
     def test_missing_required_field(self) -> None:
         with pytest.raises(ValidationError):

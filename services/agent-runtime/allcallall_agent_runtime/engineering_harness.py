@@ -19,14 +19,14 @@ comparable.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from .checkpoint.store import SQLiteCheckpointStore
 from .factory import build_agent_harness
 from .providers import create_provider
 from .tool_layer import StubToolLayer
-
 
 # --------------------------------------------------------------------------- #
 # Pure IR metrics (mirror Go cmd/agent-eval/rag_eval.go)                      #

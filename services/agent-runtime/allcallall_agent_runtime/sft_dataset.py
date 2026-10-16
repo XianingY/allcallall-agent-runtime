@@ -11,7 +11,7 @@ offline on the dataset we emit.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .models import (
@@ -116,7 +116,7 @@ def build_sft_sample(badcase: BadcaseRecord) -> SFTSample | None:
         ],
         tags=[badcase.category.value, badcase.severity.value, badcase.source.value],
         quality_score=quality_score,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
     )
 
 

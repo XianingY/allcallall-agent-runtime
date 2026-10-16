@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
-from enum import Enum
+from collections.abc import Callable
+from enum import StrEnum
 from pathlib import Path
-from typing import Callable
 
-from .main import run_workflow
 from .config import config as app_config
 from .harness import reset_harness
+from .main import run_workflow
 from .models import (
     WorkflowEvalCase,
     WorkflowEvalCaseResult,
@@ -19,14 +19,13 @@ from .models import (
 )
 from .providers import create_provider
 
-
 DEFAULT_FIXTURE = Path(__file__).resolve().parents[1] / "evals" / "cases.json"
 DEFAULT_OUT = Path(__file__).resolve().parents[1] / "evals" / "reports"
 _DEFAULT_RUN_WORKFLOW = run_workflow
 
 
 
-class EvalMode(str, Enum):
+class EvalMode(StrEnum):
     """Explicit feature mode used by the regression evaluator."""
 
     BASELINE = "baseline"
@@ -312,7 +311,8 @@ def format_markdown(report: WorkflowEvalReport) -> str:
     lines = [
         "# Python Agent Runtime Eval",
         "",
-        "Scope: deterministic Python LangGraph task fixtures. These numbers are regression evidence, not open-domain product-quality claims.",
+        "Scope: deterministic Python LangGraph task fixtures. These numbers are regression evidence, "
+        "not open-domain product-quality claims.",
         "",
         f"- Runtime: `{report.runtime}`",
         f"- Provider: `{report.provider}`",

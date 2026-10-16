@@ -20,20 +20,27 @@ def run_fixture_retrieval(query: str, documents: list[dict[str, str]], top_k: in
     available=false so CI does not depend on the optional package.
     """
 
+    # Guard the whole indexing path, not just the import: llama-index-core
+    # resolves a default OpenAI embedding model at query time and raises
+    # ImportError from deep inside embeddings/utils.py when the optional
+    # llama-index-embeddings-openai piece is absent. CI installs only the
+    # [dev] extra (no llamaindex), but a full local `uv sync --all-extras`
+    # hits exactly that half-installed state; degrade instead of exploding.
     try:
-        from llama_index.core import Document, VectorStoreIndex  # type: ignore[import-not-found]
-    except Exception:
-        return lexical_fallback(query, documents, top_k, reason="llama_index_not_installed")
+        from llama_index.core import Document, VectorStoreIndex
 
-    nodes = [Document(text=item.get("text", ""), metadata={"title": item.get("title", "")}) for item in documents]
-    index = VectorStoreIndex.from_documents(nodes)
-    retriever = index.as_retriever(similarity_top_k=top_k)
-    results = retriever.retrieve(query)
+        nodes = [Document(text=item.get("text", ""), metadata={"title": item.get("title", "")}) for item in documents]
+        index = VectorStoreIndex.from_documents(nodes)
+        retriever = index.as_retriever(similarity_top_k=top_k)
+        results = retriever.retrieve(query)
+    except Exception:
+        return lexical_fallback(query, documents, top_k, reason="llama_index_not_usable")
+
     hits = [
         {
             "title": str(item.node.metadata.get("title", "")),
             "score": float(item.score or 0),
-            "text": item.node.get_text()[:300],
+            "text": item.node.get_content()[:300],
         }
         for item in results
     ]

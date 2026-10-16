@@ -22,7 +22,7 @@ llamaindex = [
 dev = [
   "mypy>=2.4.0,<3",
   "pytest>=9.1.1,<10",
-  "ruff>=0.15,<0.16",
+  "ruff>=0.17.0,<0.18",
 ]
 
 [tool.setuptools.packages.find]
@@ -34,10 +34,6 @@ allcallall-shared = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-
-[tool.ruff]
-line-length = 100
-target-version = "py311"
 
 [tool.mypy]
 python_version = "3.11"

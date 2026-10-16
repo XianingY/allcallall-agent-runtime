@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-import pytest
-from fastapi import HTTPException
-from fastapi.testclient import TestClient
-
 import allcallall_agent_runtime.config as cfg
+import pytest
 from allcallall_agent_runtime.api_auth import require_auth, reset_auth_warning
 from allcallall_agent_runtime.main import app
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 VALID_BODY = {
     "organization_id": 1,

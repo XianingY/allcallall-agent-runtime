@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import threading
+from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
 from .models import (
+    ApprovalDecision,
     Citation,
     ContextChunk,
     ContextSufficiency,
@@ -16,12 +17,11 @@ from .models import (
     IntentRoute,
     MemoryReflection,
     OutputDecision,
-    RetrievalPlan,
     RetrievalAttempt,
+    RetrievalPlan,
     RiskAssessment,
     RoleResult,
     ToolProposal,
-    ApprovalDecision,
     TraceEvent,
     WorkflowRequest,
 )

@@ -27,7 +27,7 @@ llamaindex = [
 dev = [
   "mypy>=2.4.0,<3",
   "pytest>=9.1.1,<10",
-  "ruff>=0.15,<0.16",
+  "ruff>=0.17.0,<0.18",
   "types-PyYAML>=6.0,<7",
 ]
 
@@ -41,10 +41,6 @@ allcallall-shared = { workspace = true }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
-[tool.ruff]
-line-length = 100
-target-version = "py311"
-
 [tool.mypy]
 python_version = "3.11"
 strict = true
@@ -52,4 +48,11 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = "pymysql.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Optional eval-only dependency ([llamaindex] extra); CI typechecks without
+# it installed, so declare it instead of an inline type: ignore that becomes
+# "unused" whenever the extra is present.
+module = "llama_index.*"
 ignore_missing_imports = true

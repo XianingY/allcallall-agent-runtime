@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from allcallall_agent_runtime.badcase import BadcaseStore, classify_badcase
@@ -51,7 +51,7 @@ def _labeled_record(category: BadcaseCategory, corrected: MeetingBriefResponse) 
     if category == BadcaseCategory.UNSUPPORTED_MISHANDLE:
         record = BadcaseRecord(
             id=uuid.uuid4().hex,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             organization_id=1,
             workflow_run_id=99,
             source=BadcaseSource.SAMPLING_AUDIT,

@@ -5,16 +5,15 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-import pytest
-from pydantic import ValidationError
-
 import allcallall_agent_runtime.config as cfg
+import pytest
 from allcallall_agent_runtime.async_tool_queue import AsyncToolQueue, ToolQueueWorker, get_default_tool_queue
 from allcallall_agent_runtime.checkpoint.store import NullCheckpointStore
 from allcallall_agent_runtime.harness import AllCallAllAgentHarness
 from allcallall_agent_runtime.main import app
 from allcallall_agent_runtime.models import ToolProposal, WorkflowRequest
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 
 def test_multi_replica_tool_queue_is_rejected_at_startup(

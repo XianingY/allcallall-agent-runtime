@@ -17,7 +17,6 @@ from allcallall_agent_runtime.engineering_harness import (
 )
 from allcallall_agent_runtime.models import MeetingBriefRequest
 
-
 # --- pure IR metric unit tests -------------------------------------------- #
 
 def test_hit_rate_at_k_present() -> None:

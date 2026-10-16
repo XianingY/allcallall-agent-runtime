@@ -14,25 +14,26 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     WRITES_IDX_MAP,
     BaseCheckpointSaver,
+    ChannelVersions,
     Checkpoint,
     CheckpointMetadata,
     CheckpointTuple,
-    ChannelVersions,
     get_checkpoint_id,
     get_checkpoint_metadata,
 )
 from pymysql.connections import Connection
 from pymysql.cursors import DictCursor
 
+from ..metrics import checkpoint_payload_bytes
 from ..persistence.mysql_pool import (
     ConnectionFactory,
     MySQLConnectionPool,
+)
+from ..persistence.mysql_pool import (
     mysql_connection_factory as mysql_connection_factory,
 )
 from ..persistence.mysql_schema import initialize_checkpoint_schema
-from ..metrics import checkpoint_payload_bytes
 from .payload import project_checkpoint_state, serialized_checkpoint_size
-
 
 NamespaceKey = tuple[str, str]
 CheckpointKey = tuple[str, str, str]
@@ -1028,7 +1029,9 @@ class MySQLCheckpointSaver(BaseCheckpointSaver[int]):
         before: RunnableConfig | None = None,
         limit: int | None = None,
     ) -> AsyncIterator[CheckpointTuple]:
-        items = await anyio.to_thread.run_sync(lambda: list(self.list(config, filter=filter, before=before, limit=limit)))
+        items = await anyio.to_thread.run_sync(
+            lambda: list(self.list(config, filter=filter, before=before, limit=limit))
+        )
         for item in items:
             yield item
 

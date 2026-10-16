@@ -23,8 +23,8 @@ from __future__ import annotations
 import contextvars
 import random
 import time
-from datetime import datetime, timezone
-from typing import Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 # Bounded set of valid cancellation reasons.
 _VALID_CANCEL_REASONS = frozenset({"client_cancelled", "deadline_exceeded", "shutdown", "lease_lost"})
@@ -105,7 +105,7 @@ class ExecutionDeadline:
             # Convert the UTC wall-clock deadline to a monotonic deadline.
             # We compute the offset from "now UTC" to the caller deadline UTC,
             # then add that offset to the monotonic now.
-            now_utc = datetime.now(timezone.utc)
+            now_utc = datetime.now(UTC)
             caller_offset = (caller_deadline_utc - now_utc).total_seconds()
             caller_mono = now_mono + caller_offset
             # Clamp: earlier caller deadline wins, later is capped by local max.
@@ -278,7 +278,7 @@ def _parse_rfc3339(value: str) -> datetime | None:
         # Ensure timezone-aware UTC
         if dt.tzinfo is None:
             return None
-        return dt.astimezone(timezone.utc)
+        return dt.astimezone(UTC)
     except (ValueError, TypeError):
         return None
 

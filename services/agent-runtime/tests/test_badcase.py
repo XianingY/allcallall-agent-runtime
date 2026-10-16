@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from allcallall_agent_runtime.badcase import BadcaseStore, classify_badcase
 from allcallall_agent_runtime.harness import AllCallAllAgentHarness
 from allcallall_agent_runtime.models import (

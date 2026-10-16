@@ -10,10 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import httpx
-
 import pytest
-from pydantic import ValidationError
-
 from allcallall_agent_runtime.clients import build_runtime_clients
 from allcallall_agent_runtime.config import AgentRuntimeConfig
 from allcallall_agent_runtime.models import (
@@ -23,7 +20,7 @@ from allcallall_agent_runtime.models import (
 )
 from allcallall_agent_runtime.providers.base import create_provider
 from allcallall_agent_runtime.providers.openai_compatible import OpenAICompatibleProvider
-
+from pydantic import ValidationError
 
 # --------------------------------------------------------------------------- #
 # Helpers

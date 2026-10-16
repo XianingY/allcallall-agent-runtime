@@ -5,19 +5,18 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
-import pytest
 import pymysql
-from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata
-
-from allcallall_agent_runtime.checkpoint.payload import project_checkpoint_state, serialized_checkpoint_size
+import pytest
 from allcallall_agent_runtime.checkpoint import (
     CheckpointExecutionBusy,
     CheckpointVersionConflict,
     MySQLCheckpointSaver,
 )
 from allcallall_agent_runtime.checkpoint.mysql import mysql_connection_factory
+from allcallall_agent_runtime.checkpoint.payload import project_checkpoint_state, serialized_checkpoint_size
 from allcallall_agent_runtime.models import ContextChunk, TraceEvent
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata
 
 MYSQL_DSN = os.getenv("PY_AGENT_TEST_MYSQL_DSN", "").strip()
 pytestmark = pytest.mark.skipif(not MYSQL_DSN, reason="PY_AGENT_TEST_MYSQL_DSN is not configured")

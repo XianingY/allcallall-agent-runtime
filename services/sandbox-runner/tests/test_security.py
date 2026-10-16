@@ -4,7 +4,6 @@ import socket
 
 import httpx
 import pytest
-
 from allcallall_sandbox_runner.models import ExecutionRequest
 from allcallall_sandbox_runner.security import (
     PinnedHTTPSAsyncTransport,
@@ -12,8 +11,8 @@ from allcallall_sandbox_runner.security import (
     RunnerSecurityError,
     host_allowed,
     unsafe_ip,
-    validate_interview_network_config,
     validate_https_endpoint,
+    validate_interview_network_config,
 )
 
 

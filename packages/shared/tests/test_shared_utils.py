@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-
 import pytest
-
 from shared.utils import (
     chunk_key,
     contains_any,

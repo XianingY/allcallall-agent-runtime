@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from allcallall_agent_runtime.config import AgentRuntimeConfig
 
 

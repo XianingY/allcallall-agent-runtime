@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from allcallall_interview_mcp import main as compatibility_main
 from allcallall_reference_mcp import main
 

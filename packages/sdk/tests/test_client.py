@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import httpx
 import pytest
-
 from allcallall_agent_runtime_sdk import AgentRuntimeClient, RAGRuntimeClient
 
 

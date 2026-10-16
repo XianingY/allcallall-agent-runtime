@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from .models import ContextChunk, RetrievalQueryRequest
 from .clients import RAGClients, build_rag_clients
-from .metrics import metrics
-from .qdrant_adapter import QdrantAdapterError
 from .config import config as default_config
+from .metrics import metrics
+from .models import ContextChunk, RetrievalQueryRequest
+from .qdrant_adapter import QdrantAdapterError
 
 logger = logging.getLogger(__name__)
 

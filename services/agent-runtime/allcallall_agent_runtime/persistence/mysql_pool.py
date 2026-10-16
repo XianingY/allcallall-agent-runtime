@@ -10,7 +10,6 @@ from urllib.parse import unquote, urlparse
 import pymysql
 from pymysql.connections import Connection
 
-
 ConnectionFactory = Callable[[], Connection]
 
 

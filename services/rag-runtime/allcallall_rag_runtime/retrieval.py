@@ -15,15 +15,13 @@ from .models import (
     ContextSufficiency,
     EvidencePack,
     GraphExpansion,
-    KnowledgeGraphEdge,
     GroundingCheckResponse,
+    KnowledgeGraphEdge,
     PreparedCandidates,
+    RerankResponse,
     RetrievalAttempt,
     RetrievalRoute,
-    RerankResponse,
 )
-
-
 
 # --------------------------------------------------------------------------- #
 # Task 12: candidate preparation and fingerprint-based rerank reuse             #

@@ -1,9 +1,9 @@
 """Compatibility exports for :mod:`allcallall_reference_mcp.main`."""
 
 from allcallall_reference_mcp.main import (
-    BearerAuthMiddleware,
     DB_PATH,
     TOKEN_FILE,
+    BearerAuthMiddleware,
     app,
     create_support_ticket,
     get_ticket,

@@ -11,11 +11,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from .mcp_runner import MCPRunnerError, execute_tool, validate_installation
+from .metrics import metrics
 from .models import ExecutionRequest, ExecutionResponse, ValidationRequest, ValidationResponse
 from .security import RunnerSecurityError, validate_interview_network_config
 from .supervisor_transport import SupervisorTransportError
-from .metrics import metrics
-
 
 _one_shot_lock = threading.Lock()
 _one_shot_consumed = False

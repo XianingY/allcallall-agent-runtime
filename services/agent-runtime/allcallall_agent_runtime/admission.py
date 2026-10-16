@@ -17,13 +17,12 @@ import threading
 import time
 from collections import deque
 from types import TracebackType
-from typing import Optional
 
 from .metrics import (
     admission_accepted_total,
     admission_active_runs,
-    admission_queued_runs,
     admission_queue_wait_seconds,
+    admission_queued_runs,
     admission_rejected_total,
 )
 
@@ -66,9 +65,9 @@ class AdmissionLease:
 
     def __exit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         self.close()
 
@@ -81,7 +80,7 @@ class _Waiter:
     def __init__(self, org_id: int) -> None:
         self.event = threading.Event()
         self.acquired = False
-        self.lease: Optional[AdmissionLease] = None
+        self.lease: AdmissionLease | None = None
         self.cancelled = False
         self.org_id = org_id
         self.enqueued_at = time.monotonic()

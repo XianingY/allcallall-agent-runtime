@@ -20,7 +20,6 @@ from .models import (
     WorkflowRequest,
 )
 
-
 # Tool name constants
 READ_TOOL_CONTEXT_CHUNKS = "query_context_chunks"
 READ_TOOL_KNOWLEDGE_CHUNKS = "query_knowledge_chunks"
@@ -427,7 +426,10 @@ def evaluate_context_sufficiency(request: WorkflowRequest, pack: EvidencePack) -
         missing.append("knowledge citation")
     threshold = 0.55 if pack.route_intent in {"risk", "consult"} else 0.45
     sufficient = not missing and pack.confidence >= threshold
-    reason = "context is sufficient for grounded synthesis" if sufficient else "context is insufficient for grounded synthesis"
+    if sufficient:
+        reason = "context is sufficient for grounded synthesis"
+    else:
+        reason = "context is insufficient for grounded synthesis"
     return ContextSufficiency(
         sufficient=sufficient,
         confidence=pack.confidence,

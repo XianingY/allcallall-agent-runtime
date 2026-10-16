@@ -7,12 +7,8 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
-import pytest
-from langgraph.graph import END, StateGraph
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.runnables import RunnableConfig
-
 import allcallall_agent_runtime.nodes.parallel_roles as parallel_roles
+import pytest
 from allcallall_agent_runtime.config import AgentRuntimeConfig
 from allcallall_agent_runtime.config import config as app_config
 from allcallall_agent_runtime.dag import _route_after_parallel_roles, _route_first
@@ -36,25 +32,27 @@ from allcallall_agent_runtime.nodes.parallel_roles import (
 from allcallall_agent_runtime.nodes.retrieval import (
     build_evidence_pack,
     rerank_context,
-    retrieve_context,
     retrieval_loop,
+    retrieve_context,
     sufficiency_gate,
 )
-from allcallall_agent_runtime.nodes.role_router import route_roles
+from allcallall_agent_runtime.nodes.role_router import (
+    EarlyTerminationThresholds,
+    route_roles,
+    should_terminate_early,
+)
 from allcallall_agent_runtime.nodes.synthesis import (
     bounded_react_search,
     decompose,
     risk_analyst,
     searcher,
 )
-from allcallall_agent_runtime.nodes.role_router import (
-    EarlyTerminationThresholds,
-    should_terminate_early,
-)
-from allcallall_agent_runtime.state import GraphState
-from allcallall_agent_runtime.state import RoleAllocation
+from allcallall_agent_runtime.state import GraphState, RoleAllocation
 from allcallall_agent_runtime.tool_bridge import ToolObservation
 from allcallall_agent_runtime.tool_layer import StubGoToolBridge
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 
 
 def _chunk(source_type: str, source_id: str = "1") -> ContextChunk:
@@ -903,4 +901,8 @@ def test_eval_runner_parallel_and_early_termination_modes_do_not_regress(
 
     assert baseline.summary.passed_cases == parallel.summary.passed_cases == early.summary.passed_cases
     assert baseline.summary.task_success_rate == parallel.summary.task_success_rate == early.summary.task_success_rate
-    assert baseline.summary.citation_grounding_rate == parallel.summary.citation_grounding_rate == early.summary.citation_grounding_rate
+    assert (
+        baseline.summary.citation_grounding_rate
+        == parallel.summary.citation_grounding_rate
+        == early.summary.citation_grounding_rate
+    )
