@@ -49,3 +49,10 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = "pymysql.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Optional eval-only dependency ([llamaindex] extra); CI typechecks without
+# it installed, so declare it instead of an inline type: ignore that becomes
+# "unused" whenever the extra is present.
+module = "llama_index.*"
+ignore_missing_imports = true
