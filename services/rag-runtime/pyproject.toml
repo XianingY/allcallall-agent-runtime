@@ -5,7 +5,7 @@ description = "Python RAG runtime for AllCallAll Agent retrieval, rerank, and gr
 requires-python = ">=3.11"
 dependencies = [
   "allcallall-shared>=0.1.0",
-  "fastapi>=0.111,<1",
+  "fastapi>=0.143.3,<1",
   "httpx>=0.27,<1",
   "pydantic>=2.7,<3",
   "pydantic-settings>=2.3,<3",
