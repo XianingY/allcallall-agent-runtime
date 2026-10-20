@@ -16,7 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 # httpx stays for the test harness: tests exercise the runner's own ASGI API
 # with httpx.ASGITransport, which is unrelated to the MCP client stack.
-dev = ["httpx>=0.27,<1", "mypy>=2.4.0,<3", "pytest>=9.1.1,<10", "ruff>=0.17.0,<0.18"]
+dev = ["httpx>=0.27,<1", "mypy>=2.4.0,<3", "pytest>=9.1.1,<10", "ruff>=0.17.1,<0.18"]
 
 [tool.setuptools.packages.find]
 include = ["allcallall_sandbox_runner*"]
