@@ -9,7 +9,7 @@ dependencies = [
   # in security.py subclasses httpx2.AsyncBaseTransport directly.
   "httpx2>=2.13,<3",
   "mcp>=2.3.0,<3",
-  "pydantic>=2.7,<3",
+  "pydantic>=2.14.1,<3",
   "uvicorn[standard]>=0.54.0,<1",
 ]
 
